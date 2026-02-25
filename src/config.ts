@@ -3,8 +3,8 @@ import { MixinAccountConfigSchema, type MixinAccountConfig, type MixinConfig } f
 
 const CHANNEL_KEY = "channels.mixin";
 
-function getRawConfig(cfg: OpenClawConfig): MixinConfig {
-  return (cfg as Record<string, unknown>)[CHANNEL_KEY] as MixinConfig ?? {};
+function getRawConfig(cfg: OpenClawConfig): any {
+  return (cfg as Record<string, unknown>)[CHANNEL_KEY] ?? {};
 }
 
 export function listAccountIds(cfg: OpenClawConfig): string[] {

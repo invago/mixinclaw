@@ -24,7 +24,7 @@ export const MixinAccountConfigSchema = z.object({
 export type MixinAccountConfig = z.infer<typeof MixinAccountConfigSchema>;
 
 // 顶层 schema 支持单账号 + 多账号
-export const MixinConfigSchema = MixinAccountConfigSchema.extend({
+export const MixinConfigSchema: z.ZodTypeAny = MixinAccountConfigSchema.extend({
   accounts: z.record(z.string(), MixinAccountConfigSchema.optional()).optional(),
 });
 

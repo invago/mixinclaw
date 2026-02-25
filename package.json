@@ -1,5 +1,5 @@
 {
-  "name": "openclaw-mixin-channel",
+  "name": "mixin",
   "version": "1.0.0",
   "description": "Mixin Messenger channel plugin for OpenClaw",
   "type": "module",
@@ -39,7 +39,7 @@
       ]
     },
     "install": {
-      "npmSpec": "openclaw-mixin-channel",
+      "npmSpec": "mixin",
       "localPath": "extensions/mixin"
     }
   }
