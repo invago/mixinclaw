@@ -1,0 +1,9 @@
+{
+  "id": "mixin",
+  "channels": ["mixin"],
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": true,
+    "properties": {}
+  }
+}

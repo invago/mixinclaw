@@ -1,0 +1,41 @@
+{
+  "name": "openclaw-mixin-channel",
+  "version": "1.0.0",
+  "description": "Mixin Messenger channel plugin for OpenClaw",
+  "type": "module",
+  "main": "index.ts",
+  "scripts": {
+    "dev": "nodemon --exec \"node --import jiti/register index.ts\" --ext ts",
+    "lint": "eslint src/**/*.ts index.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "openclaw": ">=2026.2.0"
+  },
+  "dependencies": {
+    "@mixin.dev/mixin-node-sdk": "^7.4.1",
+    "axios": "^1.6.0",
+    "zod": "^3.22.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "jiti": "^1.21.0",
+    "nodemon": "^3.0.0",
+    "typescript": "^5.3.0"
+  },
+  "openclaw": {
+    "extensions": ["./index.ts"],
+    "channel": {
+      "id": "mixin",
+      "label": "Mixin Messenger",
+      "selectionLabel": "Mixin Messenger (Blaze WebSocket)",
+      "docsPath": "/channels/mixin",
+      "order": 70,
+      "aliases": ["mixin-messenger", "mixin"]
+    },
+    "install": {
+      "npmSpec": "openclaw-mixin-channel",
+      "localPath": "extensions/mixin"
+    }
+  }
+}
