@@ -1,5 +1,7 @@
 import { MixinApi } from "@mixin.dev/mixin-node-sdk";
+import { buildChannelConfigSchema } from "openclaw/plugin-sdk";
 import type { ChannelGatewayContext, OpenClawConfig } from "openclaw/plugin-sdk";
+import { MixinConfigSchema } from "./config-schema.js";
 import {
   listAccountIds,
   resolveAccount,
@@ -30,23 +32,7 @@ export const mixinPlugin = {
     aliases: ["mixin-messenger", "mixin"],
   },
 
-  // 直接提供 JSON schema，避免 zod 版本冲突
-  configSchema: {
-    schema: {
-      type: "object",
-      additionalProperties: true,
-      properties: {
-        appId: { type: "string", description: "Mixin App ID (UUID)" },
-        sessionId: { type: "string", description: "Mixin Session ID (UUID)" },
-        serverPublicKey: { type: "string", description: "Mixin Server Public Key (Base64)" },
-        sessionPrivateKey: { type: "string", description: "Session Private Key (Ed25519 Base64)" },
-        dmPolicy: { type: "string", enum: ["open", "pairing", "allowlist"], default: "open" },
-        allowFrom: { type: "array", items: { type: "string" }, default: [] },
-        requireMentionInGroup: { type: "boolean", default: true },
-        debug: { type: "boolean", default: false },
-      },
-    },
-  },
+  configSchema: buildChannelConfigSchema(MixinConfigSchema),
 
   capabilities: {
     chatTypes: ["direct", "group"] as Array<"direct" | "group">,
