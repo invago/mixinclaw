@@ -48,8 +48,6 @@ export const mixinPlugin = {
     resolveAccount: (cfg: OpenClawConfig, accountId?: string | null) =>
       resolveAccount(cfg, accountId ?? undefined),
     defaultAccountId: () => "default",
-    isConfigured,
-    describeAccount,
   },
 
   security: {

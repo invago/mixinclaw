@@ -1,10 +1,8 @@
 import type { OpenClawConfig } from "openclaw/plugin-sdk";
 import { MixinAccountConfigSchema, type MixinAccountConfig, type MixinConfig } from "./config-schema.js";
 
-const CHANNEL_KEY = "channels.mixin";
-
 function getRawConfig(cfg: OpenClawConfig): any {
-  return (cfg as Record<string, unknown>)[CHANNEL_KEY] ?? {};
+  return (cfg.channels as Record<string, unknown>)?.mixin ?? {};
 }
 
 export function listAccountIds(cfg: OpenClawConfig): string[] {
@@ -34,11 +32,21 @@ export function getAccountConfig(cfg: OpenClawConfig, accountId?: string): Mixin
 export function resolveAccount(cfg: OpenClawConfig, accountId?: string) {
   const id = accountId ?? "default";
   const config = getAccountConfig(cfg, id);
+  const configured = Boolean(config.appId && config.sessionId && config.serverPublicKey && config.sessionPrivateKey);
   return {
     accountId: id,
-    config,
     enabled: config.enabled !== false,
-    configured: Boolean(config.appId && config.sessionId && config.sessionPrivateKey),
+    configured,
+    name: config.name,
+    appId: config.appId,
+    sessionId: config.sessionId,
+    serverPublicKey: config.serverPublicKey,
+    sessionPrivateKey: config.sessionPrivateKey,
+    dmPolicy: config.dmPolicy,
+    allowFrom: config.allowFrom,
+    requireMentionInGroup: config.requireMentionInGroup,
+    debug: config.debug,
+    config,
   };
 }
 
