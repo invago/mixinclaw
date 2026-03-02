@@ -7,14 +7,19 @@
   "scripts": {
     "dev": "nodemon --exec \"node --import jiti/register index.ts\" --ext ts",
     "lint": "eslint src/**/*.ts index.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "pair": "node src/pair-cli.mjs",
+    "pairing": "node src/pair-cli.mjs"
   },
   "peerDependencies": {
     "openclaw": ">=2026.2.0"
   },
   "dependencies": {
     "@mixin.dev/mixin-node-sdk": "^7.4.1",
+    "@noble/curves": "^2.0.1",
+    "@noble/hashes": "^2.0.1",
     "axios": "^1.6.0",
+    "express": "^5.2.1",
     "zod": "^4.3.6"
   },
   "devDependencies": {

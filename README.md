@@ -48,7 +48,65 @@ npm run typecheck  # 验证类型
    - **Server Public Key** (Base64)
    - **Session Private Key** (Ed25519 Base64)
 
-### 2. 配置 OpenClaw
+### 2. 配置访问策略
+
+Mixin 插件支持三种访问策略：
+
+#### `open` - 任何人可聊（最简单）
+
+```json
+{
+  "channels": {
+    "mixin": {
+      "appId": "your-app-uuid",
+      "sessionId": "your-session-uuid",
+      "serverPublicKey": "...",
+      "sessionPrivateKey": "...",
+      "dmPolicy": "open"
+    }
+  }
+}
+```
+
+#### `pairing` - 配对验证（推荐）
+
+```json
+{
+  "channels": {
+    "mixin": {
+      "appId": "your-app-uuid",
+      "sessionId": "your-session-uuid",
+      "serverPublicKey": "...",
+      "sessionPrivateKey": "...",
+      "dmPolicy": "pairing"
+    }
+  }
+}
+```
+
+**配对流程：**
+1. 用户向机器人发送 `pair` 命令
+2. 机器人回复6位验证码
+3. 管理员运行 `npm run pairing <验证码>` 完成配对
+4. 用户自动加入白名单，可以开始聊天
+
+#### `allowlist` - 白名单（最安全）
+```json
+{
+  "channels": {
+    "mixin": {
+      "appId": "your-app-uuid",
+      "sessionId": "your-session-uuid",
+      "serverPublicKey": "...",
+      "sessionPrivateKey": "...",
+      "dmPolicy": "allowlist",
+      "allowFrom": ["user-uuid-1", "user-uuid-2"]
+    }
+  }
+}
+```
+
+### 3. 配置 OpenClaw
 
 在 OpenClaw 配置文件中添加 `channels.mixin` 配置：
 
@@ -123,7 +181,28 @@ npm run typecheck  # 验证类型
 openclaw start
 ```
 
-### 2. 在 Mixin Messenger 中与 Bot 对话
+### 2. 配对验证模式（dmPolicy: \"pairing\"）
+
+如果配置了 `dmPolicy: \"pairing\"`，首次使用的用户需要完成配对验证：
+
+#### 用户端操作：
+1. 在Mixin中向机器人发送 `pair` 命令
+2. 机器人会回复包含6位验证码的消息
+3. 验证码30分钟内有效
+
+#### 管理员操作：
+1. 在服务器上运行配对命令：
+   ```bash
+   npm run pairing A7BD20  # 替换为实际的验证码
+   ```
+2. 查看待配对列表：
+   ```bash
+   npm run pairing list
+   ```
+
+配对成功后，用户自动加入白名单，可以开始聊天。
+
+### 3. 在 Mixin Messenger 中与 Bot 对话
 
 #### 私聊场景
 
@@ -180,6 +259,21 @@ Mixin API (api.mixin.one)
 Mixin 用户收到 AI 回复
 ```
 
+## 消息处理说明
+
+### 消息类型支持
+
+- **PLAIN_TEXT** 消息：自动进行base64解码处理，支持中文和英文
+- **PLAIN_POST** 消息：与PLAIN_TEXT相同的处理方式
+- **ENCRYPTED_TEXT** 消息：返回 `[ENCRYPTED_MESSAGE]` 标识符，等待后续解密实现
+
+### 智能解码机制
+
+消息处理器会自动检测数据格式：
+- 如果是有效的base64编码，会进行解码
+- 如果已经是明文或解码失败，直接使用原始数据
+- 防止因格式判断错误导致的乱码问题
+
 ## 开发
 
 ### 项目结构
@@ -214,6 +308,19 @@ npm run dev
 
 # 代码检查
 npm run lint
+```
+
+### 配对管理命令
+
+```bash
+# 查看待配对列表
+npm run pairing list
+
+# 验证配对码
+npm run pairing A7BD20
+
+# 配对帮助
+npm run pairing help
 ```
 
 ### 类型检查

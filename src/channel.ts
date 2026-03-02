@@ -3,14 +3,15 @@ import { buildChannelConfigSchema } from "openclaw/plugin-sdk";
 import type { ChannelGatewayContext, OpenClawConfig } from "openclaw/plugin-sdk";
 import { MixinConfigSchema } from "./config-schema.js";
 import {
-  listAccountIds,
-  resolveAccount,
-  isConfigured,
-  describeAccount,
-  getAccountConfig,
-} from "./config.js";
+   listAccountIds,
+   resolveAccount,
+   isConfigured,
+   describeAccount,
+   getAccountConfig,
+ } from "./config.js";
 import { handleMixinMessage, type MixinInboundMessage } from "./inbound-handler.js";
 import { sendTextMessage } from "./send-service.js";
+import { isPaired, listPairedUsers } from "./pairing-store.js";
 
 type ResolvedMixinAccount = ReturnType<typeof resolveAccount>;
 
@@ -18,6 +19,11 @@ const RECONNECT_DELAYS = [2000, 5000, 10000, 20000, 40000, 60000];
 
 async function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function maskKey(key: string): string {
+  if (!key || key.length < 8) return "****";
+  return key.slice(0, 4) + "****" + key.slice(-4);
 }
 
 export const mixinPlugin = {
@@ -50,16 +56,26 @@ export const mixinPlugin = {
     defaultAccountId: () => "default",
   },
 
-  security: {
-    resolveDmPolicy: ({ account, accountId }: { account: ResolvedMixinAccount; accountId?: string | null }) => ({
-      policy: account.config.dmPolicy ?? "open",
-      allowFrom: account.config.allowFrom ?? [],
-      allowFromPath: `channels.mixin${accountId && accountId !== "default" ? `.accounts.${accountId}` : ""}.allowFrom`,
-      approveHint: "将用户的 Mixin UUID 添加到 allowFrom 列表中",
-    }),
-  },
+security: {
+      resolveDmPolicy: ({ account, accountId }: { account: ResolvedMixinAccount; accountId?: string | null }) => {
+        const configKey = accountId ?? "default";
+        const pairedUsers = listPairedUsers(configKey);
+        const pairedUserIds = pairedUsers.map(p => p.userId);
+        const allowFrom = account.config.allowFrom ?? [];
+        const finalAllowFrom = Array.from(new Set([...allowFrom, ...pairedUserIds]));
+        
+        return {
+          policy: "allowlist" as const,
+          allowFrom: finalAllowFrom,
+          allowFromPath: `channels.mixin${accountId && accountId !== "default" ? `.accounts.${accountId}` : ""}.allowFrom`,
+          approveHint: pairedUserIds.length > 0 
+            ? `已配对用户数: ${pairedUserIds.length} | 将用户的 Mixin UUID 添加到 allowFrom 列表中`
+            : "将用户的 Mixin UUID 添加到 allowFrom 列表中",
+        };
+      },
+    },
 
-  outbound: {
+   outbound: {
     deliveryMode: "direct" as const,
 
     sendText: async (ctx: {
@@ -95,72 +111,77 @@ export const mixinPlugin = {
 
       let attempt = 0;
 
-      const runLoop = async () => {
-        while (!stopped) {
-          try {
-            log.info(`connecting to Mixin Blaze (attempt ${attempt + 1})`);
+       const runLoop = async () => {
+         while (!stopped) {
+           try {
+             log.info(`connecting to Mixin Blaze (attempt ${attempt + 1})`);
+             log.info(`config: appId=${maskKey(config.appId!)}, sessionId=${maskKey(config.sessionId!)}`);
 
-            const client = MixinApi({
-              keystore: {
-                app_id: config.appId!,
-                session_id: config.sessionId!,
-                server_public_key: config.serverPublicKey!,
-                session_private_key: config.sessionPrivateKey!,
-              },
-              blazeOptions: { parse: true, syncAck: true },
-            });
+             const client = MixinApi({
+               keystore: {
+                 app_id: config.appId!,
+                 session_id: config.sessionId!,
+                 server_public_key: config.serverPublicKey!,
+                 session_private_key: config.sessionPrivateKey!,
+               },
+               blazeOptions: { parse: true, syncAck: true },
+             });
 
             await new Promise<void>((resolve, reject) => {
               if (stopped) { resolve(); return; }
 
               try {
                 client.blaze.loop({
-                  onMessage: async (rawMsg: any) => {
-                    if (stopped) return;
+onMessage: async (rawMsg: any) => {
+                     if (stopped) return;
+                      if (!rawMsg || !rawMsg.message_id) return;
+                      if (!rawMsg.user_id || rawMsg.user_id === config.appId) return;
 
-                    const data = rawMsg?.data;
-                    if (!data || rawMsg.action !== "CREATE_MESSAGE") return;
-                    if (!data.user_id || data.user_id === config.appId) return;
+                     const data = rawMsg?.data;
 
-                    // Mixin conversation_id 为群组时与私聊不同
-                    // 私聊: uniqueConversationID(appId, userId)，群组: 群组 UUID
-                    const isDirect = data.conversation_id === undefined
-                      ? true
-                      : !data.representative_id;
+                     // Mixin conversation_id 为群组时与私聊不同
+                     // 私聊: uniqueConversationID(appId, userId)，群组: 群组 UUID
+                     const isDirect = rawMsg.conversation_id === undefined
+                       ? true
+                       : !rawMsg.representative_id;
 
-                    const msg: MixinInboundMessage = {
-                      conversationId: data.conversation_id ?? "",
-                      userId: data.user_id,
-                      messageId: data.message_id,
-                      category: data.category ?? "PLAIN_TEXT",
-                      data: data.data_base64 ?? data.data ?? "",
-                      createdAt: data.created_at ?? new Date().toISOString(),
-                    };
+                     const msg: MixinInboundMessage = {
+                       conversationId: rawMsg.conversation_id ?? "",
+                       userId: rawMsg.user_id,
+                       messageId: rawMsg.message_id,
+                       category: rawMsg.category ?? "PLAIN_TEXT",
+                       data: rawMsg.data_base64 ?? rawMsg.data ?? "",
+                       createdAt: rawMsg.created_at ?? new Date().toISOString(),
+                     };
 
-                    try {
-                      await handleMixinMessage({ cfg, accountId, msg, isDirect, log });
-                    } catch (err) {
-                      log.error(`error handling message ${msg.messageId}`, err);
-                    }
-                  },
+                     try {
+                       await handleMixinMessage({ cfg, accountId, msg, isDirect, log });
+                     } catch (err) {
+                       log.error(`error handling message ${msg.messageId}`, err);
+                     }
+                   },
                 });
-              } catch (err) {
-                reject(err);
-                return;
-              }
+               } catch (err) {
+                 const errorMsg = err instanceof Error ? err.message : String(err);
+                 log.error(`blaze loop init error: ${errorMsg}`, err);
+                 reject(err);
+                 return;
+               }
 
               abortSignal?.addEventListener("abort", () => resolve());
             });
 
             if (stopped) break;
             attempt = 0;
-          } catch (err) {
-            if (stopped) break;
-            const delay = RECONNECT_DELAYS[Math.min(attempt, RECONNECT_DELAYS.length - 1)];
-            log.warn(`connection lost, retrying in ${delay}ms (attempt ${attempt + 1})`);
-            attempt++;
-            await sleep(delay);
-          }
+           } catch (err) {
+             if (stopped) break;
+             const errorMsg = err instanceof Error ? err.message : String(err);
+             log.error(`connection error: ${errorMsg}`, err);
+             const delay = RECONNECT_DELAYS[Math.min(attempt, RECONNECT_DELAYS.length - 1)];
+             log.warn(`retrying in ${delay}ms (attempt ${attempt + 1})`);
+             attempt++;
+             await sleep(delay);
+           }
         }
 
         log.info("gateway stopped");
