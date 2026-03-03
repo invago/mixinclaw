@@ -3,7 +3,7 @@ import { getMixinRuntime } from "./runtime.js";
 import { sendTextMessage } from "./send-service.js";
 import { getAccountConfig } from "./config.js";
 import type { MixinAccountConfig } from "./config-schema.js";
-import { addPendingPairing, isPaired } from "./pairing.js";
+
 import { decryptMixinMessage } from "./crypto.js";
 
 export interface MixinInboundMessage {
@@ -153,28 +153,57 @@ if (!config.allowFrom.includes(msg.userId)) {
      return;
    }
 
-  // 创建上下文
-  const ctx = rt.channel.reply.finalizeInboundContext({
-    Body: text,
-    RawBody: text,
-    From: isDirect ? msg.userId : msg.conversationId,
-    SessionKey: route.sessionKey,
-    AccountId: accountId,
-    ChatType: isDirect ? "direct" : "group",
-    Provider: "mixin",
-    Surface: "mixin",
-    MessageSid: msg.messageId,
-  });
+   // 创建上下文
+   const shouldComputeCommandAuthorized = rt.channel.commands.shouldComputeCommandAuthorized(
+     text,
+     cfg,
+   );
 
-  // 记录会话
-  await rt.channel.session.recordInboundSession({
-    storePath: route.agentId,
-    sessionKey: route.sessionKey,
-    ctx,
-    onRecordError: (err: unknown) => {
-      log.error("[mixin] session record error", err);
-    },
-  });
+   const useAccessGroups = cfg.commands?.useAccessGroups !== false;
+   const commandAllowFrom = config.allowFrom;
+
+   const senderAllowedForCommands = useAccessGroups
+     ? config.allowFrom.includes(msg.userId)
+     : true;
+
+   const commandAuthorized = shouldComputeCommandAuthorized
+     ? rt.channel.commands.resolveCommandAuthorizedFromAuthorizers({
+         useAccessGroups,
+         authorizers: [
+           {
+             configured: commandAllowFrom.length > 0,
+             allowed: senderAllowedForCommands,
+           },
+         ],
+       })
+     : undefined;
+
+   const ctx = rt.channel.reply.finalizeInboundContext({
+     Body: text,
+     RawBody: text,
+     CommandBody: text,
+     From: isDirect ? msg.userId : msg.conversationId,
+     SessionKey: route.sessionKey,
+     AccountId: accountId,
+     ChatType: isDirect ? "direct" : "group",
+     Provider: "mixin",
+     Surface: "mixin",
+     MessageSid: msg.messageId,
+     CommandAuthorized: commandAuthorized,
+   });
+
+    // 记录会话
+    const storePath = rt.channel.session.resolveStorePath(cfg.session?.store, {
+      agentId: route.agentId,
+    });
+    await rt.channel.session.recordInboundSession({
+      storePath,
+     sessionKey: route.sessionKey,
+     ctx,
+     onRecordError: (err: unknown) => {
+       log.error("[mixin] session record error", err);
+     },
+   });
 
   // 分发消息
   log.info(`[mixin] dispatching ${msg.messageId} from ${msg.userId}`);

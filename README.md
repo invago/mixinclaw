@@ -8,10 +8,8 @@ Mixin Messenger 频道插件，用于将 [Mixin Messenger](https://mixin.one/mes
 - ✅ 支持私聊和群组消息
 - ✅ 自动消息去重（防止重复处理）
 - ✅ 群组消息智能过滤（支持问号、触发词检测）
-- ✅ 访问控制策略（open / pairing / allowlist）
-- ✅ 指数退避自动重连（2s → 60s）
-- ✅ 支持单账号和多账号配置
-- ✅ TypeScript 编写，类型安全
+- ✅ 内置命令支持（`/models`, `/status`, `/help` 等）
+- ✅ 统一的白名单访问控制
 
 ## 安装
 
@@ -68,28 +66,6 @@ Mixin 插件支持三种访问策略：
 }
 ```
 
-#### `pairing` - 配对验证（推荐）
-
-```json
-{
-  "channels": {
-    "mixin": {
-      "appId": "your-app-uuid",
-      "sessionId": "your-session-uuid",
-      "serverPublicKey": "...",
-      "sessionPrivateKey": "...",
-      "dmPolicy": "pairing"
-    }
-  }
-}
-```
-
-**配对流程：**
-1. 用户向机器人发送 `pair` 命令
-2. 机器人回复6位验证码
-3. 管理员运行 `npm run pairing <验证码>` 完成配对
-4. 用户自动加入白名单，可以开始聊天
-
 #### `allowlist` - 白名单（最安全）
 ```json
 {
@@ -105,6 +81,23 @@ Mixin 插件支持三种访问策略：
   }
 }
 ```
+
+#### `pairing` - 配对认证（自动认证）
+```json
+{
+  "channels": {
+    "mixin": {
+      "appId": "your-app-uuid",
+      "sessionId": "your-session-uuid",
+      "serverPublicKey": "...",
+      "sessionPrivateKey": "...",
+      "dmPolicy": "pairing",
+      "allowFrom": []
+    }
+  }
+}
+```
+使用 `pairing` 策略时，用户首次发送消息会收到配对认证请求，管理员可通过 OpenClaw 的配对管理命令完成认证。
 
 ### 3. 配置 OpenClaw
 
@@ -167,7 +160,7 @@ Mixin 插件支持三种访问策略：
 | `serverPublicKey` | string | 必填 | 服务器公钥（Base64） |
 | `sessionPrivateKey` | string | 必填 | 会话私钥（Ed25519 Base64） |
 | `dmPolicy` | `"open"` \| `"pairing"` \| `"allowlist"` | `"open"` | 私聊访问策略 |
-| `allowFrom` | string[] | `[]` | 白名单用户 UUID 列表（仅 `dmPolicy: "allowlist"` 时有效） |
+| `allowFrom` | string[] | `[]` | 白名单用户 UUID 列表（命令和私聊权限） |
 | `requireMentionInGroup` | boolean | `true` | 群组消息是否需要包含触发词（`?`、`帮`、`请`、`分析` 等） |
 | `debug` | boolean | `false` | 调试模式 |
 
@@ -181,35 +174,29 @@ Mixin 插件支持三种访问策略：
 openclaw start
 ```
 
-### 2. 配对验证模式（dmPolicy: \"pairing\"）
+### 2. 使用命令（Slash Commands）
 
-如果配置了 `dmPolicy: \"pairing\"`，首次使用的用户需要完成配对验证：
+Mixin 插件支持 OpenClaw 内置命令，直接发送以 `/` 开头的消息：
 
-#### 用户端操作：
-1. 在Mixin中向机器人发送 `pair` 命令
-2. 机器人会回复包含6位验证码的消息
-3. 验证码30分钟内有效
+```
+/models        # 查看可用的模型列表
+/status        # 查看系统状态
+/queue         # 查看任务队列
+/help          # 查看帮助
+```
 
-#### 管理员操作：
-1. 在服务器上运行配对命令：
-   ```bash
-   npm run pairing A7BD20  # 替换为实际的验证码
-   ```
-2. 查看待配对列表：
-   ```bash
-   npm run pairing list
-   ```
-
-配对成功后，用户自动加入白名单，可以开始聊天。
+命令权限由 `allowFrom` 白名单控制（白名单用户可使用命令）。
 
 ### 3. 在 Mixin Messenger 中与 Bot 对话
 
 #### 私聊场景
 
-直接发送消息即可（根据 `dmPolicy` 策略）：
+直接发送消息（支持命令和普通对话）：
 
 ```
-你好！
+你好！                    # 普通对话
+/model                    # 查看模型列表
+/status                   # 查看系统状态
 ```
 
 #### 群组场景
@@ -261,18 +248,29 @@ Mixin 用户收到 AI 回复
 
 ## 消息处理说明
 
+### 命令支持
+
+Mixin 插件基于 `nativeCommands: true` 实现 OpenClaw 内置命令支持，包括：
+
+| 命令 | 说明 | 权限 |
+|------|------|------|
+| `/models [provider]` | 列出可用模型或指定 Provider 的模型 | 白名单 |
+| `/status` | 查看系统状态（会话、模型、队列） | 白名单 |
+| `/queue` | 查看任务队列 | 白名单 |
+| `/help` | 查看帮助 | 白名单 |
+
+**命令权限说明：**
+- 命令默认需要 `allowFrom` 白名单授权
+- `dmPolicy: open` 时，所有用户可使用命令
+- `dmPolicy: allowlist` 时，仅白名单用户可使用命令
+- `dmPolicy: pairing` 时，配对认证后的用户可使用命令
+
 ### 消息类型支持
 
 - **PLAIN_TEXT** 消息：自动进行base64解码处理，支持中文和英文
 - **PLAIN_POST** 消息：与PLAIN_TEXT相同的处理方式
-- **ENCRYPTED_TEXT** 消息：返回 `[ENCRYPTED_MESSAGE]` 标识符，等待后续解密实现
+- **ENCRYPTED_TEXT** 消息：自动解密
 
-### 智能解码机制
-
-消息处理器会自动检测数据格式：
-- 如果是有效的base64编码，会进行解码
-- 如果已经是明文或解码失败，直接使用原始数据
-- 防止因格式判断错误导致的乱码问题
 
 ## 开发
 
@@ -358,8 +356,19 @@ npx tsc --noEmit
 **解决方案**：
 - 插件已内置消息去重（基于 `message_id`）
 - 如仍重复，检查是否运行了多个 OpenClaw 实例
+- 检查日志是否有 `[mixin] skip duplicate message` 条目
 
-### 4. 类型错误
+### 4. 命令无响应
+
+**现象**：发送 `/models` 或 `/status` 等命令没有回复
+
+**解决方案**：
+- 确认插件版本 >= 1.0.1（支持内置命令）
+- 检查 `allowFrom` 白名单配置
+- 查看日志是否有 `[mixin] route result: FOUND` 确认消息路由成功
+- 确认 OpenClaw Agent 已正确配置
+
+### 5. 类型错误
 
 **现象**：`npm install` 后 TypeScript 报错
 
@@ -397,6 +406,14 @@ MIT License
 - [GitHub 仓库](https://github.com/invago/mixinclaw)
 
 ## 更新日志
+
+### v1.0.1 (2026-03-03)
+
+- ✅ 添加内置命令支持（`/models`, `/status`, `/queue`, `/help`）
+- ✅ 实现完整的 `CommandBody` 和 `CommandAuthorized` 处理
+- ✅ 支持 access groups 配置（`cfg.commands.useAccessGroups`）
+- ✅ 修复命令消息未响应的问题
+- ✅ 更新 OpenClaw Plugin SDK 以支持原生命令
 
 ### v1.0.0 (2025-01-xx)
 

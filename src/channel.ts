@@ -3,15 +3,14 @@ import { buildChannelConfigSchema } from "openclaw/plugin-sdk";
 import type { ChannelGatewayContext, OpenClawConfig } from "openclaw/plugin-sdk";
 import { MixinConfigSchema } from "./config-schema.js";
 import {
-   listAccountIds,
-   resolveAccount,
-   isConfigured,
-   describeAccount,
-   getAccountConfig,
- } from "./config.js";
+    listAccountIds,
+    resolveAccount,
+    isConfigured,
+    describeAccount,
+    getAccountConfig,
+  } from "./config.js";
 import { handleMixinMessage, type MixinInboundMessage } from "./inbound-handler.js";
 import { sendTextMessage } from "./send-service.js";
-import { isPaired, listPairedUsers } from "./pairing-store.js";
 
 type ResolvedMixinAccount = ReturnType<typeof resolveAccount>;
 
@@ -56,20 +55,17 @@ export const mixinPlugin = {
     defaultAccountId: () => "default",
   },
 
-security: {
+    security: {
       resolveDmPolicy: ({ account, accountId }: { account: ResolvedMixinAccount; accountId?: string | null }) => {
         const configKey = accountId ?? "default";
-        const pairedUsers = listPairedUsers(configKey);
-        const pairedUserIds = pairedUsers.map(p => p.userId);
         const allowFrom = account.config.allowFrom ?? [];
-        const finalAllowFrom = Array.from(new Set([...allowFrom, ...pairedUserIds]));
         
         return {
           policy: "allowlist" as const,
-          allowFrom: finalAllowFrom,
+          allowFrom: allowFrom,
           allowFromPath: `channels.mixin${accountId && accountId !== "default" ? `.accounts.${accountId}` : ""}.allowFrom`,
-          approveHint: pairedUserIds.length > 0 
-            ? `已配对用户数: ${pairedUserIds.length} | 将用户的 Mixin UUID 添加到 allowFrom 列表中`
+          approveHint: allowFrom.length > 0 
+            ? `已配置白名单用户数: ${allowFrom.length} | 将用户的 Mixin UUID 添加到 allowFrom 列表中`
             : "将用户的 Mixin UUID 添加到 allowFrom 列表中",
         };
       },
