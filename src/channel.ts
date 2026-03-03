@@ -135,11 +135,8 @@ onMessage: async (rawMsg: any) => {
 
                      const data = rawMsg?.data;
 
-                     // Mixin conversation_id 为群组时与私聊不同
-                     // 私聊: uniqueConversationID(appId, userId)，群组: 群组 UUID
-                     const isDirect = rawMsg.conversation_id === undefined
-                       ? true
-                       : !rawMsg.representative_id;
+                      // Mixin: 私聊 user_id === representative_id，群聊 user_id !== representative_id
+                      const isDirect = rawMsg.user_id === rawMsg.representative_id;
 
                      const msg: MixinInboundMessage = {
                        conversationId: rawMsg.conversation_id ?? "",
