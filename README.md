@@ -67,19 +67,6 @@ Mixin 插件目前**仅支持白名单模式**（`allowlist`）。
 ```
 
 #### `allowlist` - 白名单（当前唯一支持的模式）
-```json
-{
-  "channels": {
-    "mixin": {
-      "appId": "your-app-uuid",
-      "sessionId": "your-session-uuid",
-      "serverPublicKey": "...",
-      "sessionPrivateKey": "...",
-      "allowFrom": ["user-uuid-1", "user-uuid-2"]
-    }
-  }
-}
-```
 
 ### 3. 配置 OpenClaw
 
@@ -384,7 +371,7 @@ MIT License
 - [Mixin Network 官网](https://mixin.one)
 - [Mixin Developers](https://developers.mixin.one)
 - [Mixin Node.js SDK](https://github.com/MixinNetwork/bot-api-nodejs-client)
-- [GitHub 仓库](https://github.com/invago/mixinclaw)
+- [MixinClaw GitHub 仓库](https://github.com/invago/mixinclaw)
 
 ## 更新日志
 
@@ -396,11 +383,10 @@ MIT License
 - ✅ 修复命令消息未响应的问题
 - ✅ 更新 OpenClaw Plugin SDK 以支持原生命令
 
-### v1.0.0 (2025-01-xx)
+### v1.0.0 (2026-02-26)
 
 - 首次发布
 - 支持 Mixin Blaze WebSocket 消息接收
 - 支持私聊/群组消息
 - 自动重连、消息去重、白名单访问控制
-- 内置命令支持（`/models`, `/status`, `/queue`, `/help`）
 - TypeScript 重写，符合 OpenClaw 插件规范
