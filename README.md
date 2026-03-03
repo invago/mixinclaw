@@ -48,9 +48,9 @@ npm run typecheck  # 验证类型
 
 ### 2. 配置访问策略
 
-Mixin 插件支持三种访问策略：
+Mixin 插件目前**仅支持白名单模式**（`allowlist`）。
 
-#### `open` - 任何人可聊（最简单）
+所有用户需要通过 `allowFrom` 配置进行认证。
 
 ```json
 {
@@ -60,29 +60,13 @@ Mixin 插件支持三种访问策略：
       "sessionId": "your-session-uuid",
       "serverPublicKey": "...",
       "sessionPrivateKey": "...",
-      "dmPolicy": "open"
-    }
-  }
-}
-```
-
-#### `allowlist` - 白名单（最安全）
-```json
-{
-  "channels": {
-    "mixin": {
-      "appId": "your-app-uuid",
-      "sessionId": "your-session-uuid",
-      "serverPublicKey": "...",
-      "sessionPrivateKey": "...",
-      "dmPolicy": "allowlist",
       "allowFrom": ["user-uuid-1", "user-uuid-2"]
     }
   }
 }
 ```
 
-#### `pairing` - 配对认证（自动认证）
+#### `allowlist` - 白名单（当前唯一支持的模式）
 ```json
 {
   "channels": {
@@ -91,13 +75,11 @@ Mixin 插件支持三种访问策略：
       "sessionId": "your-session-uuid",
       "serverPublicKey": "...",
       "sessionPrivateKey": "...",
-      "dmPolicy": "pairing",
-      "allowFrom": []
+      "allowFrom": ["user-uuid-1", "user-uuid-2"]
     }
   }
 }
 ```
-使用 `pairing` 策略时，用户首次发送消息会收到配对认证请求，管理员可通过 OpenClaw 的配对管理命令完成认证。
 
 ### 3. 配置 OpenClaw
 
@@ -159,7 +141,6 @@ Mixin 插件支持三种访问策略：
 | `sessionId` | string | 必填 | Mixin 会话 UUID |
 | `serverPublicKey` | string | 必填 | 服务器公钥（Base64） |
 | `sessionPrivateKey` | string | 必填 | 会话私钥（Ed25519 Base64） |
-| `dmPolicy` | `"open"` \| `"pairing"` \| `"allowlist"` | `"open"` | 私聊访问策略 |
 | `allowFrom` | string[] | `[]` | 白名单用户 UUID 列表（命令和私聊权限） |
 | `requireMentionInGroup` | boolean | `true` | 群组消息是否需要包含触发词（`?`、`帮`、`请`、`分析` 等） |
 | `debug` | boolean | `false` | 调试模式 |
@@ -346,7 +327,7 @@ npx tsc --noEmit
 
 **解决方案**：
 - 检查 `requireMentionInGroup` 配置（群组需触发词）
-- 检查 `dmPolicy` 和 `allowFrom` 白名单
+- 检查 `allowFrom` 白名单配置
 - 查看 OpenClaw 日志：`[mixin] skip non-text message` 表示消息类型不支持
 
 ### 3. 消息重复处理
@@ -420,5 +401,6 @@ MIT License
 - 首次发布
 - 支持 Mixin Blaze WebSocket 消息接收
 - 支持私聊/群组消息
-- 自动重连、消息去重、访问控制
+- 自动重连、消息去重、白名单访问控制
+- 内置命令支持（`/models`, `/status`, `/queue`, `/help`）
 - TypeScript 重写，符合 OpenClaw 插件规范
