@@ -1,7 +1,7 @@
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
 import { emptyPluginConfigSchema } from "openclaw/plugin-sdk";
-import { mixinPlugin } from "./channel.js";
-import { setMixinRuntime } from "./runtime.js";
+import { mixinPlugin } from "./src/channel.js";
+import { setMixinRuntime } from "./src/runtime.js";
 
 // 全局错误处理
 process.on('unhandledRejection', (reason, promise) => {
