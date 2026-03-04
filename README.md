@@ -1,134 +1,135 @@
 # MixinClaw
 
-将 [Mixin Messenger](https://mixin.one/messenger) 接入 [OpenClaw](https://openclaw.ai) AI 助手平台的频道插件。
+Connect [Mixin Messenger](https://mixin.one/messenger) to [OpenClaw](https://openclaw.ai) AI assistant platform.
 
-## 快速开始（5 分钟）
+## Quick Start (5 minutes)
 
-### 1. 安装
+### 1. Install
 
 ```bash
-# 安装到 OpenClaw extensions 目录
+# Install to OpenClaw extensions directory
 npm install mixinclaw --prefix $(openclaw extensions dir)
 ```
 
-### 2. 创建 Mixin Bot
+### 2. Create Mixin Bot
 
-1. 访问 [Mixin Developers Dashboard](https://developers.mixin.one/dashboard)
-2. 使用 Mixin Messenger 扫描二维码登录
-3. 点击"+"创建新机器人
-4. 获取凭证：
+1. Visit [Mixin Developers Dashboard](https://developers.mixin.one/dashboard)
+2. Scan QR code with Mixin Messenger to login
+3. Click "+" to create a new bot
+4. Get credentials:
    - **App ID** (UUID)
    - **Session ID** (UUID)
    - **Server Public Key** (Base64)
    - **Session Private Key** (Ed25519 Base64)
 
-### 3. 配置
+### 3. Configure
 
-编辑 OpenClaw 配置文件（`openclaw config` 查看位置）：
+Edit OpenClaw config file (run `openclaw config` to find location):
 
 ```json
 {
   "channels": {
     "mixin": {
-      "appId": "你的 App ID",
-      "sessionId": "你的 Session ID",
-      "serverPublicKey": "服务器公钥 Base64",
-      "sessionPrivateKey": "会话私钥 Base64",
-      "allowFrom": ["授权用户 UUID"]
+      "appId": "YOUR_APP_ID",
+      "sessionId": "YOUR_SESSION_ID",
+      "serverPublicKey": "YOUR_SERVER_PUBLIC_KEY_BASE64",
+      "sessionPrivateKey": "YOUR_SESSION_PRIVATE_KEY_BASE64",
+      "allowFrom": ["AUTHORIZED_USER_UUID"]
     }
   }
 }
 ```
 
-### 4. 启动
+### 4. Start
 
 ```bash
 openclaw start
 ```
 
-看到 `[mixin] connected to Mixin Blaze` 表示连接成功。
+Look for `[mixin] connected to Mixin Blaze` in logs to confirm successful connection.
 
-### 5. 测试
+### 5. Test
 
-在 Mixin Messenger 中向 Bot 发送：
-- 私聊：`/status` 或 `你好`
-- 群聊：`@Bot 你的问题`（需包含 `?`、`帮`、`请` 等触发词）
+Send messages to your bot in Mixin Messenger:
+- **Direct message**: `/status` or `Hello`
+- **Group message**: `@Bot your question` (must include trigger words like `?`, `help`)
 
-## 配置参数
+## Configuration
 
-| 参数 | 必填 | 默认值 | 说明 |
-|------|------|--------|------|
-| `appId` | ✅ | - | Mixin 应用 UUID |
-| `sessionId` | ✅ | - | 会话 UUID |
-| `serverPublicKey` | ✅ | - | 服务器公钥 |
-| `sessionPrivateKey` | ✅ | - | 会话私钥 |
-| `allowFrom` | ❌ | `[]` | 白名单用户列表 |
-| `requireMentionInGroup` | ❌ | `true` | 群组需触发词 |
-| `debug` | ❌ | `false` | 调试模式 |
+| Parameter | Required | Default | Description |
+|-----------|----------|---------|-------------|
+| `appId` | ✅ | - | Mixin App UUID |
+| `sessionId` | ✅ | - | Session UUID |
+| `serverPublicKey` | ✅ | - | Server Public Key (Base64) |
+| `sessionPrivateKey` | ✅ | - | Session Private Key (Ed25519 Base64) |
+| `allowFrom` | ❌ | `[]` | Whitelist of authorized user UUIDs |
+| `requireMentionInGroup` | ❌ | `true` | Require trigger words in groups |
+| `debug` | ❌ | `false` | Debug mode |
 
-## 功能特性
+## Features
 
-- ✅ 实时消息接收（Mixin Blaze WebSocket）
-- ✅ 私聊和群组支持
-- ✅ 自动消息去重
-- ✅ 群组触发词过滤（`?`、`帮`、`请`、`分析`）
-- ✅ 内置命令（`/models`、`/status`、`/queue`、`/help`）
-- ✅ 白名单访问控制
-- ✅ 网络异常自动重试（最多 10 次，指数退避）
+- ✅ Real-time message reception (Mixin Blaze WebSocket)
+- ✅ Direct and group message support
+- ✅ Automatic message deduplication
+- ✅ Smart group message filtering (trigger words: `?`, `help`, `analyze`)
+- ✅ Built-in commands (`/models`, `/status`, `/queue`, `/help`)
+- ✅ Whitelist-based access control
+- ✅ Automatic retry on network errors (max 10 attempts, exponential backoff)
+- ✅ Multi-account support
 
-## 使用指南
+## Usage
 
-### 私聊场景
+### Direct Messages
 
-直接发送消息：
+Send messages directly to bot:
 ```
-你好！
+Hello!
 /status
 /model
 ```
 
-### 群组场景
+### Group Messages
 
-需要@Bot 并包含触发词：
+Must @Bot and include trigger words:
 ```
-@Bot 这是什么意思？
-@Bot 帮我分析一下
-@Bot 请总结
+@Bot What does this mean?
+@Bot Help me analyze this
+@Bot Please summarize
 ```
 
-触发词：`?`、`帮`、`请`、`分析`、`总结`、`help`
+**Trigger words**: `?`, `help`, `analyze`, `summarize`, `please`
 
-### 内置命令
+### Built-in Commands
 
-需要白名单权限：
+Require whitelist permission:
 
-| 命令 | 说明 |
-|------|------|
-| `/models` | 查看可用模型 |
-| `/models <provider>` | 查看指定 Provider 的模型 |
-| `/status` | 查看系统状态 |
-| `/queue` | 查看任务队列 |
-| `/help` | 查看帮助 |
+| Command | Description |
+|---------|-------------|
+| `/models` | List available AI models |
+| `/models <provider>` | List models from specific provider |
+| `/status` | Check system status |
+| `/queue` | View task queue |
+| `/help` | Show help information |
 
-### 获取用户 UUID
+### Get User UUID
 
-1. 向 Bot 发送任意消息
-2. 查看日志中的 `user_id: xxx`
-3. 复制到 `allowFrom` 列表
+1. Send any message to the bot
+2. Check logs for `user_id: xxx`
+3. Copy UUID to `allowFrom` list
 
-## 故障排查
+## Troubleshooting
 
-| 问题 | 日志 | 解决方案 |
-|------|------|---------|
-| 连接失败 | `connecting to Mixin Blaze` 循环 | 检查 4 个凭证是否正确，私钥为 Ed25519 格式（44 字符） |
-| 收不到消息 | 无 `[mixin] message:` | 检查 `allowFrom` 白名单，群组需触发词 |
-| 消息被过滤 | `[mixin] group message filtered` | 添加 `?`、`帮`、`请` 等触发词，或设置 `requireMentionInGroup: false` |
-| 发送失败 | `sendText failed: timeout` | 自动重试中，检查网络访问 `api.mixin.one` |
-| 命令无响应 | `[mixin] route result: FOUND` | 确认用户在 `allowFrom` 白名单中 |
+| Issue | Log Message | Solution |
+|-------|-------------|----------|
+| Connection failed | `connecting to Mixin Blaze` loop | Verify all 4 credentials, private key must be Ed25519 (44 chars) |
+| Not receiving messages | No `[mixin] message:` log | Check `allowFrom` whitelist, groups need trigger words |
+| Message filtered | `[mixin] group message filtered` | Add trigger words (`?`, `help`) or set `requireMentionInGroup: false` |
+| Send failed | `sendText failed: timeout` | Auto-retrying, check network access to `api.mixin.one` |
+| Commands not working | `[mixin] route result: FOUND` | Ensure user is in `allowFrom` whitelist |
 
-## 高级配置
+## Advanced Configuration
 
-### 多账号配置
+### Multi-Account Setup
 
 ```json
 {
@@ -136,14 +137,14 @@ openclaw start
     "mixin": {
       "accounts": {
         "bot1": {
-          "name": "客服机器人",
+          "name": "Customer Service Bot",
           "appId": "...",
           "sessionId": "...",
           "serverPublicKey": "...",
           "sessionPrivateKey": "..."
         },
         "bot2": {
-          "name": "技术支持",
+          "name": "Tech Support Bot",
           "appId": "...",
           "sessionId": "...",
           "serverPublicKey": "...",
@@ -155,7 +156,7 @@ openclaw start
 }
 ```
 
-### 环境变量配置
+### Environment Variables
 
 ```json
 {
@@ -170,14 +171,15 @@ openclaw start
 }
 ```
 
-设置环境变量：
+Set environment variables:
 ```bash
 export MIXIN_APP_ID="your-app-id"
 export MIXIN_SESSION_ID="your-session-id"
-# ... 其他变量
+export MIXIN_SERVER_PUBLIC_KEY="your-public-key"
+export MIXIN_SESSION_PRIVATE_KEY="your-private-key"
 ```
 
-## 开发
+## Development
 
 ```bash
 git clone https://github.com/invago/mixinclaw.git
@@ -186,12 +188,12 @@ npm install
 npm run typecheck
 ```
 
-**开发命令**：
-- `npm run dev` - 开发模式（热重载）
-- `npm run build` - 编译
-- `npm run lint` - 代码检查
+**Development commands**:
+- `npm run dev` - Development mode (hot reload)
+- `npm run build` - Build for production
+- `npm run lint` - Code linting
 
-**项目结构**：
+**Project structure**:
 ```
 mixinclaw/
 ├── index.ts
@@ -203,13 +205,58 @@ mixinclaw/
 └── package.json
 ```
 
-## 相关链接
+## Security Best Practices
 
-- [OpenClaw 官网](https://openclaw.ai)
+1. **Protect Private Keys**:
+   - Never hardcode private keys in source code
+   - Use environment variables or encrypted config files
+   - Rotate Session Private Keys periodically
+
+2. **Access Control**:
+   - Always configure `allowFrom` whitelist in production
+   - Do not use `dmPolicy: open` (deprecated)
+
+3. **Log Security**:
+   - App IDs and Session IDs are masked in logs
+   - Do not upload log files to public platforms
+
+## Related Links
+
+- [OpenClaw Documentation](https://openclaw.ai)
 - [Mixin Developers Dashboard](https://developers.mixin.one/dashboard)
-- [Mixin Bot API 文档](https://developers.mixin.one/docs/bot-api)
-- [GitHub 仓库](https://github.com/invago/mixinclaw)
+- [Mixin Bot API Documentation](https://developers.mixin.one/docs/bot-api)
+- [Mixin Node.js SDK](https://github.com/MixinNetwork/bot-api-nodejs-client)
+- [GitHub Repository](https://github.com/invago/mixinclaw)
 
-## 许可证
+## License
 
 MIT License
+
+## Contributing
+
+Issues and Pull Requests are welcome!
+
+## Changelog
+
+### v1.0.2 (2026-03-04)
+
+- ✅ Added message retry mechanism (exponential backoff)
+- ✅ Fixed direct and group message sending logic
+- ✅ Optimized project structure (rootDir changed to ./src)
+- ✅ Added detailed send logs with attempt count
+- ✅ Smart retry (only for network timeout errors)
+
+### v1.0.1 (2026-03-03)
+
+- ✅ Added built-in commands (`/models`, `/status`, `/queue`, `/help`)
+- ✅ Implemented `CommandBody` and `CommandAuthorized` handling
+- ✅ Added access groups support
+- ✅ Fixed unresponsive command messages
+
+### v1.0.0 (2026-02-26)
+
+- Initial release
+- Mixin Blaze WebSocket message reception
+- Direct and group message support
+- Auto-reconnect, message deduplication, whitelist access control
+- TypeScript rewrite, OpenClaw plugin compliant
