@@ -14,7 +14,10 @@ import { sendTextMessage } from "./send-service.js";
 
 type ResolvedMixinAccount = ReturnType<typeof resolveAccount>;
 
-const RECONNECT_DELAYS = [2000, 5000, 10000, 20000, 40000, 60000];
+// 连接重试配置：永不放弃，温和递增退避
+const BASE_DELAY = 1000;      // 1 秒起
+const MAX_DELAY = 3000;       // 最多 3 秒（上限）
+const MULTIPLIER = 1.5;       // 每次增加 50%
 
 async function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -105,7 +108,8 @@ export const mixinPlugin = {
       const stop = () => { stopped = true; };
       abortSignal?.addEventListener("abort", stop);
 
-      let attempt = 0;
+      let attempt = 1;
+      let delay = BASE_DELAY;
 
        const runLoop = async () => {
          while (!stopped) {
@@ -169,15 +173,19 @@ onMessage: async (rawMsg: any) => {
 
             if (stopped) break;
             attempt = 0;
-           } catch (err) {
-             if (stopped) break;
-             const errorMsg = err instanceof Error ? err.message : String(err);
-             log.error(`connection error: ${errorMsg}`, err);
-             const delay = RECONNECT_DELAYS[Math.min(attempt, RECONNECT_DELAYS.length - 1)];
-             log.warn(`retrying in ${delay}ms (attempt ${attempt + 1})`);
-             attempt++;
-             await sleep(delay);
-           }
+            } catch (err) {
+              if (stopped) break;
+              const errorMsg = err instanceof Error ? err.message : String(err);
+              log.error(`connection error: ${errorMsg}`, err);
+              
+              // 永不放弃的重试：温和递增退避
+              log.warn(`retrying in ${delay}ms (attempt ${attempt})`);
+              await sleep(delay);
+              
+              // 递增延迟，不超过上限
+              delay = Math.min(delay * MULTIPLIER, MAX_DELAY);
+              attempt++;
+            }
         }
 
         log.info("gateway stopped");
