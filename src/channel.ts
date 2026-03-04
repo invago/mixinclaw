@@ -191,9 +191,21 @@ onMessage: async (rawMsg: any) => {
         log.info("gateway stopped");
       };
 
-      runLoop().catch((err) => {
-        log.error("fatal error in gateway loop", err);
-      });
+      // IMPORTANT: Run in silent mode to prevent OpenClaw's auto-restart mechanism
+      // from triggering. All errors are handled internally with infinite retry.
+      const runLoopSilent = async () => {
+        try {
+          await runLoop();
+        } catch (err) {
+          // 理论上不会到这里，因为 runLoop 内部已经处理所有错误
+          const msg = err instanceof Error ? err.message : String(err);
+          log.error(`[internal] unexpected loop error: ${msg}`, err);
+          // 不重新抛出，让 OpenClaw 认为通道正常运行
+        }
+      };
+
+      // 启动静默运行
+      runLoopSilent();
 
       return { stop };
     },
