@@ -82,7 +82,7 @@ export const mixinPlugin = {
     }) => {
       const id = ctx.accountId ?? "default";
       const config = getAccountConfig(ctx.cfg, id);
-      const result = await sendTextMessage(config, ctx.to, ctx.to, ctx.text);
+      const result = await sendTextMessage(config, ctx.to, undefined, ctx.text);
       if (result.ok) {
         return { channel: "mixin", messageId: result.messageId ?? ctx.to };
       }
@@ -128,24 +128,18 @@ export const mixinPlugin = {
 
               try {
                 client.blaze.loop({
- onMessage: async (rawMsg: any) => {
-                      if (stopped) return;
-                       if (!rawMsg || !rawMsg.message_id) return;
-                       if (!rawMsg.user_id || rawMsg.user_id === config.appId) return;
+onMessage: async (rawMsg: any) => {
+                     if (stopped) return;
+                      if (!rawMsg || !rawMsg.message_id) return;
+                      if (!rawMsg.user_id || rawMsg.user_id === config.appId) return;
 
-                      // 🔍 添加完整调试日志
-                      log.info(`[mixin] received message: ${rawMsg.message_id}`);
-                      log.info(`[mixin] rawMsg fields: ${Object.keys(rawMsg).join(', ')}`);
-                      log.info(`[mixin] user_id: ${rawMsg.user_id}`);
-                      log.info(`[mixin] representative_id: ${rawMsg.representative_id}`);
-                      log.info(`[mixin] conversation_id: ${rawMsg.conversation_id}`);
-                      
-                      // 使用正确的 isDirect 判断
-                      const isDirect = rawMsg.user_id === rawMsg.representative_id;
-                      log.info(`[mixin] isDirect: ${isDirect} (user_id === representative_id)`);
-                      log.info(`[mixin] category: ${rawMsg.category}, status: ${rawMsg.status}`);
+                     const data = rawMsg?.data;
 
-                      const data = rawMsg?.data;
+                     // Mixin conversation_id 为群组时与私聊不同
+                     // 私聊: uniqueConversationID(appId, userId)，群组: 群组 UUID
+                     const isDirect = rawMsg.conversation_id === undefined
+                       ? true
+                       : !rawMsg.representative_id;
 
                      const msg: MixinInboundMessage = {
                        conversationId: rawMsg.conversation_id ?? "",
@@ -153,10 +147,8 @@ export const mixinPlugin = {
                        messageId: rawMsg.message_id,
                        category: rawMsg.category ?? "PLAIN_TEXT",
                        data: rawMsg.data_base64 ?? rawMsg.data ?? "",
-                        createdAt: rawMsg.created_at ?? new Date().toISOString(),
-                      };
-
-                      log.debug(`[mixin] isDirect: ${isDirect}`);
+                       createdAt: rawMsg.created_at ?? new Date().toISOString(),
+                     };
 
                      try {
                        await handleMixinMessage({ cfg, accountId, msg, isDirect, log });

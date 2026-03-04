@@ -123,7 +123,7 @@ if (!config.allowFrom.includes(msg.userId)) {
        if (lastNotified === 0 || now - lastNotified > UNAUTH_NOTIFY_INTERVAL) {
          unauthNotifiedUsers.set(msg.userId, now);
          const msgBody = `⚠️ 请等待管理员认证\n\n您的 Mixin UUID: ${msg.userId}\n\n请将此UUID添加到 allowFrom 列表中完成认证`;
-         sendTextMessage(config, msg.conversationId, msg.userId, msgBody, log).catch(() => {});
+          sendTextMessage(config, msg.conversationId, msg.userId, msgBody, log).catch(() => {});
        }
        
        return;
@@ -212,11 +212,13 @@ if (!config.allowFrom.includes(msg.userId)) {
     ctx,
     cfg,
     dispatcherOptions: {
-      deliver: async (payload) => {
-        const replyText = payload.text ?? "";
-        if (!replyText) return;
-        await sendTextMessage(config, msg.conversationId, msg.userId, replyText, log);
-      },
+       deliver: async (payload) => {
+         const replyText = payload.text ?? "";
+         if (!replyText) return;
+         // 私聊需要 recipient_id，群聊不需要
+         const recipientId = isDirect ? msg.userId : undefined;
+         await sendTextMessage(config, msg.conversationId, recipientId, replyText, log);
+       },
     },
   });
 }
