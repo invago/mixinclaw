@@ -2,6 +2,8 @@
 
 Connect [Mixin Messenger](https://mixin.one/messenger) to [OpenClaw](https://openclaw.ai) AI assistant platform.
 
+**[🇨🇳 中文文档](README.zh-CN.md)**
+
 ## Quick Start (5 minutes)
 
 ### 1. Install
@@ -36,9 +38,17 @@ Edit OpenClaw config file (run `openclaw config` to find location):
       "sessionPrivateKey": "YOUR_SESSION_PRIVATE_KEY_BASE64",
       "allowFrom": ["AUTHORIZED_USER_UUID"]
     }
+  },
+  "plugins": {
+    "allow": ["mixin"],
+    "entries": {
+      "mixin": { "enabled": true }
+    }
   }
 }
 ```
+
+**Important**: Add `mixin` to both `plugins.allow` and `plugins.entries` sections.
 
 ### 4. Start
 
@@ -226,7 +236,7 @@ mixinclaw/
 - [Mixin Developers Dashboard](https://developers.mixin.one/dashboard)
 - [Mixin Bot API Documentation](https://developers.mixin.one/docs/bot-api)
 - [Mixin Node.js SDK](https://github.com/MixinNetwork/bot-api-nodejs-client)
-- [GitHub Repository](https://github.com/invago/mixinclaw)
+- [MixinClaw GitHub Repository](https://github.com/invago/mixinclaw)
 
 ## License
 
