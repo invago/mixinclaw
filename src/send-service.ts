@@ -2,9 +2,10 @@ import { MixinApi } from "@mixin.dev/mixin-node-sdk";
 import type { MixinAccountConfig } from "./config-schema.js";
 import crypto from "crypto";
 
-// 重试配置：最大重试 10 次，指数退避（1s, 2s, 4s, 8s, 16s, 32s, 64s, 128s, 256s, 512s）
-const MAX_RETRIES = 10;
-const BASE_DELAY_MS = 1000;
+// 重试配置：永不放弃，温和递增退避
+const BASE_DELAY = 1000;      // 1 秒起
+const MAX_DELAY = 3000;       // 最多 3 秒（上限）
+const MULTIPLIER = 1.5;       // 每次增加 50%
 
 function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -37,10 +38,13 @@ export async function sendTextMessage(
   const messageData = Buffer.from(text).toString('base64');
   const messageId = crypto.randomUUID();
   
-  // 指数退避重试
-  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+  let attempt = 1;
+  let delay = BASE_DELAY;
+  
+  // 永不放弃的重试
+  while (true) {
     try {
-      log?.info(`[mixin] sendTextMessage (attempt ${attempt}/${MAX_RETRIES}): conversation=${conversationId}, recipient=${recipientId ?? 'N/A'}, text=${text.substring(0, 50)}`);
+      log?.info(`[mixin] sendTextMessage (attempt ${attempt}): conversation=${conversationId}, recipient=${recipientId ?? 'N/A'}`);
       
       const client = buildClient(config);
       
@@ -68,23 +72,22 @@ export async function sendTextMessage(
       }
       
       return { ok: true, messageId };
+      
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      const isTimeout = msg.includes('timeout') || msg.includes('ETIMEDOUT') || msg.includes('ECONNRESET');
       
-      if (isTimeout && attempt < MAX_RETRIES) {
-        const delay = BASE_DELAY_MS * Math.pow(2, attempt - 1);
-        log?.warn(`[mixin] sendText failed (attempt ${attempt}/${MAX_RETRIES}): ${msg}. Retrying in ${delay}ms...`);
-        await sleep(delay);
-      } else {
-        log?.error(`[mixin] sendText failed (attempt ${attempt}/${MAX_RETRIES}): ${msg}`, err);
-        return { ok: false, error: msg };
-      }
+      // 记录失败，继续重试
+      log?.warn(`[mixin] sendText failed (attempt ${attempt}): ${msg}. Retrying in ${delay}ms...`);
+      
+      // 等待后重试
+      await sleep(delay);
+      
+      // 递增延迟，不超过上限
+      delay = Math.min(delay * MULTIPLIER, MAX_DELAY);
+      
+      attempt++;
     }
   }
-  
-  // 不应该到这里，但为了类型安全
-  return { ok: false, error: 'Max retries exceeded' };
 }
 
 export async function acknowledgeMessage(
