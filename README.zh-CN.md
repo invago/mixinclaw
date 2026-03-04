@@ -40,10 +40,9 @@ npm install mixinclaw --prefix $(openclaw extensions dir)
     }
   },
   "plugins": {
-    "allow": ["mixin", "feishu"],
+    "allow": ["mixin"],
     "entries": {
-      "mixin": { "enabled": true },
-      "feishu": { "enabled": true }
+      "mixin": { "enabled": true }
     }
   }
 }
@@ -248,7 +247,7 @@ mixinclaw/
 - [Mixin Developers Dashboard](https://developers.mixin.one/dashboard)
 - [Mixin Bot API 文档](https://developers.mixin.one/docs/bot-api)
 - [Mixin Node.js SDK](https://github.com/MixinNetwork/bot-api-nodejs-client)
-- [GitHub 仓库](https://github.com/invago/mixinclaw)
+- [MixinClaw GitHub 仓库](https://github.com/invago/mixinclaw)
 
 ## 许可证
 
