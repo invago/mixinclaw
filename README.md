@@ -84,7 +84,7 @@ Send messages to your bot in Mixin Messenger:
 - ✅ Smart group message filtering (trigger words: `?`, `help`, `analyze`)
 - ✅ Built-in commands (`/models`, `/status`, `/queue`, `/help`)
 - ✅ Whitelist-based access control
-- ✅ Automatic retry on network errors (max 10 attempts, exponential backoff)
+- ✅ **Never-stop retry** on network errors (gentle backoff: 1s → 3s cap)
 - ✅ Multi-account support
 
 ## Usage
@@ -134,8 +134,26 @@ Require whitelist permission:
 | Connection failed | `connecting to Mixin Blaze` loop | Verify all 4 credentials, private key must be Ed25519 (44 chars) |
 | Not receiving messages | No `[mixin] message:` log | Check `allowFrom` whitelist, groups need trigger words |
 | Message filtered | `[mixin] group message filtered` | Add trigger words (`?`, `help`) or set `requireMentionInGroup: false` |
-| Send failed | `sendText failed: timeout` | Auto-retrying, check network access to `api.mixin.one` |
+| Send failed | `sendText failed: timeout` | **Auto-retrying forever** (gentle backoff: 1s→3s), will send when network returns |
 | Commands not working | `[mixin] route result: FOUND` | Ensure user is in `allowFrom` whitelist |
+
+## Network Retry Mechanism
+
+**Never-stop retry strategy** for unstable international networks:
+
+```
+Attempt 1: immediate
+Attempt 2: 1 second delay
+Attempt 3: 1.5 seconds delay
+Attempt 4: 2.25 seconds delay
+Attempt 5+: 3 seconds delay (cap)
+```
+
+**Benefits**:
+- ✅ Plugin stays alive indefinitely (no restart needed)
+- ✅ Fast recovery when network returns (max 3s wait)
+- ✅ Gentle backoff prevents server overload
+- ✅ Perfect for China-to-foreign network fluctuations
 
 ## Advanced Configuration
 
@@ -247,6 +265,14 @@ MIT License
 Issues and Pull Requests are welcome!
 
 ## Changelog
+
+### v1.0.4 (2026-03-04)
+
+- ✅ **Never-stop retry mechanism** (infinite retry, no manual restart needed)
+- ✅ Gentle incremental backoff (1s → 1.5s → 2.25s → 3s cap)
+- ✅ Fast network recovery (max 3 seconds wait time)
+- ✅ Perfect for unstable international networks
+- ✅ Plugin stays alive 24/7
 
 ### v1.0.2 (2026-03-04)
 
