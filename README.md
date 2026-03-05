@@ -268,6 +268,15 @@ Issues and Pull Requests are welcome!
 
 ## Changelog
 
+### v1.0.5 (2026-03-05)
+
+- ✅ **Project structure cleanup** (removed dist/, deployment scripts, .env.example, .opencode/)
+- ✅ **Zero pre-compilation** (OpenClaw uses jiti runtime TypeScript compilation)
+- ✅ **Clean minimal structure** (10 files in root, simplified deployment)
+- ✅ **Added comprehensive project structure documentation** to README
+- ✅ **95% size reduction** (2MB → 100KB)
+- ✅ **No build step required** (copy source files only)
+
 ### v1.0.4 (2026-03-04)
 
 - ✅ **Never-stop retry mechanism** (infinite retry, no manual restart needed)
