@@ -191,8 +191,9 @@ onMessage: async (rawMsg: any) => {
         log.info("gateway stopped");
       };
 
-      // IMPORTANT: Run in silent mode to prevent OpenClaw's auto-restart mechanism
-      // from triggering. All errors are handled internally with infinite retry.
+      // IMPORTANT: Await the runLoop directly to prevent OpenClaw's auto-restart mechanism.
+      // By awaiting, startAccount doesn't return immediately, so OpenClaw knows the channel
+      // is still initializing. The runLoop handles all errors internally with infinite retry.
       const runLoopSilent = async () => {
         try {
           await runLoop();
@@ -204,9 +205,11 @@ onMessage: async (rawMsg: any) => {
         }
       };
 
-      // 启动静默运行
-      runLoopSilent();
+      // 直接 await，不让 startAccount 立即返回
+      // 这样 OpenClaw 不会触发 auto-restart 机制
+      await runLoopSilent();
 
+      // 只有在 stopped 时才会到这里
       return { stop };
     },
   },
