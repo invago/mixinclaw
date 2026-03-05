@@ -20,11 +20,6 @@ npm install @invago/mixinclaw --prefix $(openclaw extensions dir)
 git clone https://github.com/invago/mixinclaw.git $(openclaw extensions dir)/mixinclaw
 ```
 
-Or install from specific version:
-```bash
-git clone -b v1.0.5 https://github.com/invago/mixinclaw.git $(openclaw extensions dir)/mixinclaw
-```
-
 ### 2. Create Mixin Bot
 
 1. Visit [Mixin Developers Dashboard](https://developers.mixin.one/dashboard)
@@ -243,7 +238,7 @@ mixin-claw/
 
 **Key Features**:
 - ✅ Zero pre-compilation (OpenClaw uses jiti runtime TypeScript compilation)
-- ✅ Clean source structure (matches Feishu plugin pattern)
+- ✅ Clean source structure 
 - ✅ Full TypeScript support with type safety
 - ✅ Modular design for maintainability
 

@@ -20,11 +20,6 @@ npm install @invago/mixinclaw --prefix $(openclaw extensions dir)
 git clone https://github.com/invago/mixinclaw.git $(openclaw extensions dir)/mixinclaw
 ```
 
-或安装指定版本：
-```bash
-git clone -b v1.0.5 https://github.com/invago/mixinclaw.git $(openclaw extensions dir)/mixinclaw
-```
-
 ### 2. 创建 Mixin Bot
 
 1. 访问 [Mixin Developers Dashboard](https://developers.mixin.one/dashboard)
@@ -255,7 +250,7 @@ mixin-claw/
 
 **主要特点**：
 - ✅ 零预编译（OpenClaw 使用 jiti 运行时编译 TypeScript）
-- ✅ 简洁的源码结构（参考飞书插件模式）
+- ✅ 简洁的源码结构
 - ✅ 完整的 TypeScript 类型支持
 - ✅ 模块化设计便于维护
 
