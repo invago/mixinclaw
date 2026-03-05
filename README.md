@@ -207,31 +207,33 @@ export MIXIN_SERVER_PUBLIC_KEY="your-public-key"
 export MIXIN_SESSION_PRIVATE_KEY="your-private-key"
 ```
 
-## Development
+## Project Structure
 
-```bash
-git clone https://github.com/invago/mixinclaw.git
-cd mixinclaw
-npm install
-npm run typecheck
+```
+mixin-claw/
+├── index.ts                  # Plugin entry point
+├── package.json              # npm configuration
+├── openclaw.plugin.json      # OpenClaw plugin manifest
+├── tsconfig.json             # TypeScript configuration
+├── README.md                 # This file (English documentation)
+├── README.zh-CN.md           # Chinese documentation
+├── .gitignore                # Git ignore rules
+└── src/                      # Source code
+    ├── channel.ts            # Channel definition & connection logic
+    ├── config-schema.ts      # Zod schema for configuration
+    ├── config.ts             # Configuration parser
+    ├── runtime.ts            # Runtime singleton
+    ├── inbound-handler.ts    # Inbound message processing
+    ├── send-service.ts       # Outbound message sending (with retry)
+    ├── crypto.ts             # Crypto utilities
+    └── decrypt.ts            # Decryption utilities
 ```
 
-**Development commands**:
-- `npm run dev` - Development mode (hot reload)
-- `npm run build` - Build for production
-- `npm run lint` - Code linting
-
-**Project structure**:
-```
-mixinclaw/
-├── index.ts
-├── src/
-│   ├── channel.ts
-│   ├── config-schema.ts
-│   ├── inbound-handler.ts
-│   └── send-service.ts
-└── package.json
-```
+**Key Features**:
+- ✅ Zero pre-compilation (OpenClaw uses jiti runtime TypeScript compilation)
+- ✅ Clean source structure (matches Feishu plugin pattern)
+- ✅ Full TypeScript support with type safety
+- ✅ Modular design for maintainability
 
 ## Security Best Practices
 

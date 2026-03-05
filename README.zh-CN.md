@@ -219,33 +219,35 @@ export MIXIN_SERVER_PUBLIC_KEY="your-public-key"
 export MIXIN_SESSION_PRIVATE_KEY="your-private-key"
 ```
 
+## 项目结构
+
+```
+mixin-claw/
+├── index.ts                  # 插件入口
+├── package.json              # npm 配置
+├── openclaw.plugin.json      # OpenClaw 插件清单
+├── tsconfig.json             # TypeScript 配置
+├── README.md                 # 英文文档
+├── README.zh-CN.md           # 中文文档
+├── .gitignore                # Git 忽略规则
+└── src/                      # 源代码
+    ├── channel.ts            # 频道定义与连接逻辑
+    ├── config-schema.ts      # Zod schema 配置
+    ├── config.ts             # 配置解析
+    ├── runtime.ts            # 运行时单例
+    ├── inbound-handler.ts    # 消息接收处理
+    ├── send-service.ts       # 消息发送（含重试机制）
+    ├── crypto.ts             # 加密工具
+    └── decrypt.ts            # 解密工具
+```
+
+**主要特点**：
+- ✅ 零预编译（OpenClaw 使用 jiti 运行时编译 TypeScript）
+- ✅ 简洁的源码结构（参考飞书插件模式）
+- ✅ 完整的 TypeScript 类型支持
+- ✅ 模块化设计便于维护
+
 ## 开发
-
-```bash
-git clone https://github.com/invago/mixinclaw.git
-cd mixinclaw
-npm install
-npm run typecheck
-```
-
-**开发命令**：
-- `npm run dev` - 开发模式（热重载）
-- `npm run build` - 编译
-- `npm run lint` - 代码检查
-
-**项目结构**：
-```
-mixinclaw/
-├── index.ts
-├── src/
-│   ├── channel.ts
-│   ├── config-schema.ts
-│   ├── inbound-handler.ts
-│   └── send-service.ts
-└── package.json
-```
-
-## 安全建议
 
 1. **私钥保护**：
    - 不要在代码中硬编码私钥
