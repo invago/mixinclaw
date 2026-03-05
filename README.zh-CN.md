@@ -8,9 +8,21 @@
 
 ### 1. 安装
 
+#### 方式 A：npm 安装（推荐）
+
 ```bash
-# 安装到 OpenClaw extensions 目录
-npm install mixinclaw --prefix $(openclaw extensions dir)
+npm install @invago/mixinclaw --prefix $(openclaw extensions dir)
+```
+
+#### 方式 B：Git 安装（开发/测试）
+
+```bash
+git clone https://github.com/invago/mixinclaw.git $(openclaw extensions dir)/mixinclaw
+```
+
+或安装指定版本：
+```bash
+git clone -b v1.0.5 https://github.com/invago/mixinclaw.git $(openclaw extensions dir)/mixinclaw
 ```
 
 ### 2. 创建 Mixin Bot
@@ -263,6 +275,7 @@ mixin-claw/
 
 ## 相关链接
 
+- [MixinClaw npm 包](https://www.npmjs.com/package/@invago/mixinclaw)
 - [OpenClaw 文档](https://openclaw.ai)
 - [Mixin Developers Dashboard](https://developers.mixin.one/dashboard)
 - [Mixin Bot API 文档](https://developers.mixin.one/docs/bot-api)
