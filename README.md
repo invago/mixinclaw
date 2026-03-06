@@ -69,7 +69,7 @@ Edit OpenClaw config file (run `openclaw config` to find location):
 ### 4. Start
 
 ```bash
-openclaw start
+openclaw status
 ```
 
 Look for `[mixin] connected to Mixin Blaze` in logs to confirm successful connection.

@@ -69,7 +69,7 @@ npm install
 ### 4. 启动
 
 ```bash
-openclaw start
+openclaw status
 ```
 
 看到 `[mixin] connected to Mixin Blaze` 表示连接成功。
