@@ -8,28 +8,7 @@ Connect [Mixin Messenger](https://mixin.one/messenger) to [OpenClaw](https://ope
 
 ### 1. Install
 
-#### Option A: npm Installation (Recommended)
-
-**Step 1: Find OpenClaw extensions directory**
-```bash
-npm root -g
-```
-This returns your global npm path. Append `/openclaw/extensions` to get the target directory.
-
-**Common paths by OS:**
-- **Linux/Mac**: `~/.openclaw/extensions` or `/usr/lib/node_modules/openclaw/extensions`
-- **Windows**: `%APPDATA%\npm\node_modules\openclaw\extensions`
-
-**Step 2: Install**
-```bash
-# Linux/Mac example
-npm install @invago/mixinclaw --prefix /usr/lib/node_modules/openclaw/extensions
-
-# Windows example
-npm install @invago/mixinclaw --prefix %APPDATA%\npm\node_modules\openclaw\extensions
-```
-
-#### Option B: Git Installation (Development)
+#### Git Installation
 
 Clone directly to OpenClaw extensions directory:
 
@@ -49,8 +28,6 @@ npm install
 ```
 
 **Update**: Pull latest changes anytime with `git pull origin main`.
-npm install
-```
 
 ### 2. Create Mixin Bot
 

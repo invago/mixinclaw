@@ -8,28 +8,7 @@
 
 ### 1. 安装
 
-#### 方式 A：npm 安装（推荐）
-
-**步骤 1：查找 OpenClaw 扩展目录**
-```bash
-npm root -g
-```
-这将返回全局 npm 路径。添加 `/openclaw/extensions` 得到目标目录。
-
-**常见路径：**
-- **Linux/Mac**: `~/.openclaw/extensions` 或 `/usr/lib/node_modules/openclaw/extensions`
-- **Windows**: `%APPDATA%\npm\node_modules\openclaw\extensions`
-
-**步骤 2：安装**
-```bash
-# Linux/Mac 示例
-npm install @invago/mixinclaw --prefix /usr/lib/node_modules/openclaw/extensions
-
-# Windows 示例
-npm install @invago/mixinclaw --prefix %APPDATA%\npm\node_modules\openclaw\extensions
-```
-
-#### 方式 B：Git 安装（开发/测试）
+#### Git 安装
 
 直接克隆到 OpenClaw 扩展目录：
 
