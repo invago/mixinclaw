@@ -8,16 +8,41 @@ Connect [Mixin Messenger](https://mixin.one/messenger) to [OpenClaw](https://ope
 
 ### 1. Install
 
-#### Option A: npm (Recommended)
+#### Option A: npm Installation (Recommended)
 
+**Step 1: Find OpenClaw extensions directory**
 ```bash
-npm install @invago/mixinclaw --prefix $(openclaw extensions dir)
+npm root -g
+```
+This returns your global npm path. Append `/openclaw/extensions` to get the target directory.
+
+**Common paths by OS:**
+- **Linux/Mac**: `~/.openclaw/extensions` or `/usr/local/lib/node_modules/openclaw/extensions`
+- **Windows**: `%APPDATA%\npm\node_modules\openclaw\extensions`
+
+**Step 2: Install**
+```bash
+# Linux/Mac example
+npm install @invago/mixinclaw --prefix ~/.openclaw/extensions
+
+# Windows example
+npm install @invago/mixinclaw --prefix %APPDATA%\npm\node_modules\openclaw\extensions
 ```
 
-#### Option B: Git (Development)
+#### Option B: Git Installation (Development)
 
 ```bash
-git clone https://github.com/invago/mixinclaw.git $(openclaw extensions dir)/mixinclaw
+# Linux/Mac
+git clone https://github.com/invago/mixinclaw.git ~/.openclaw/extensions/mixin
+
+# Windows PowerShell
+git clone https://github.com/invago/mixinclaw.git "$env:APPDATA\npm\node_modules\openclaw\extensions\mixin"
+```
+
+**Note**: After Git installation, run `npm install` inside the `mixin` directory to install dependencies.
+```bash
+cd ~/.openclaw/extensions/mixin
+npm install
 ```
 
 ### 2. Create Mixin Bot
@@ -143,6 +168,39 @@ Require whitelist permission:
 | Message filtered | `[mixin] group message filtered` | Add trigger words (`?`, `help`) or set `requireMentionInGroup: false` |
 | Send failed | `sendText failed: timeout` | **Auto-retrying forever** (gentle backoff: 1s→3s), will send when network returns |
 | Commands not working | `[mixin] route result: FOUND` | Ensure user is in `allowFrom` whitelist |
+
+### Installation Issues
+
+#### Error: Permission denied (publickey)
+
+**Problem**: npm attempting to clone via SSH
+
+**Solution**:
+```bash
+# Clean npm cache
+npm cache clean --force
+
+# Verify registry (should return https://registry.npmjs.org/)
+npm config get registry
+
+# Reinstall
+npm install @invago/mixinclaw
+```
+
+#### Error: Cannot find extensions directory
+
+**Problem**: `openclaw extensions dir` command not available in your version
+
+**Solution**: Use `npm root -g` to find your npm global path, then append `/openclaw/extensions`
+
+Or check OpenClaw config location:
+```bash
+openclaw config
+```
+
+**Common paths:**
+- **Linux/Mac**: `~/.openclaw/extensions`
+- **Windows**: `%APPDATA%\npm\node_modules\openclaw\extensions`
 
 ## Network Retry Mechanism
 

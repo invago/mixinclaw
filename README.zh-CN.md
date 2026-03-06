@@ -10,14 +10,39 @@
 
 #### 方式 A：npm 安装（推荐）
 
+**步骤 1：查找 OpenClaw 扩展目录**
 ```bash
-npm install @invago/mixinclaw --prefix $(openclaw extensions dir)
+npm root -g
+```
+这将返回全局 npm 路径。添加 `/openclaw/extensions` 得到目标目录。
+
+**常见路径：**
+- **Linux/Mac**: `~/.openclaw/extensions` 或 `/usr/local/lib/node_modules/openclaw/extensions`
+- **Windows**: `%APPDATA%\npm\node_modules\openclaw\extensions`
+
+**步骤 2：安装**
+```bash
+# Linux/Mac 示例
+npm install @invago/mixinclaw --prefix ~/.openclaw/extensions
+
+# Windows 示例
+npm install @invago/mixinclaw --prefix %APPDATA%\npm\node_modules\openclaw\extensions
 ```
 
 #### 方式 B：Git 安装（开发/测试）
 
 ```bash
-git clone https://github.com/invago/mixinclaw.git $(openclaw extensions dir)/mixinclaw
+# Linux/Mac
+git clone https://github.com/invago/mixinclaw.git ~/.openclaw/extensions/mixin
+
+# Windows PowerShell
+git clone https://github.com/invago/mixinclaw.git "$env:APPDATA\npm\node_modules\openclaw\extensions\mixin"
+```
+
+**注意**：Git 安装后，需要在 `mixin` 目录内运行 `npm install` 安装依赖。
+```bash
+cd ~/.openclaw/extensions/mixin
+npm install
 ```
 
 ### 2. 创建 Mixin Bot
@@ -142,6 +167,40 @@ openclaw start
 | 收不到消息 | 无 `[mixin] message:` | 检查 `allowFrom` 白名单，群组需触发词 |
 | 消息被过滤 | `[mixin] group message filtered` | 添加 `?`、`帮`、`请` 等触发词 |
 | 发送失败 | `sendText failed: timeout` | **永久自动重试**（温和递增：1s→3s），网络恢复后自动发送 |
+| 命令无响应 | `[mixin] route result: FOUND` | 确认用户在 `allowFrom` 白名单中 |
+
+### 安装问题
+
+#### 错误：Permission denied (publickey)
+
+**问题**：npm 试图通过 SSH 克隆
+
+**解决**：
+```bash
+# 清理 npm 缓存
+npm cache clean --force
+
+# 检查 registry（应返回 https://registry.npmjs.org/）
+npm config get registry
+
+# 重新安装
+npm install @invago/mixinclaw
+```
+
+#### 错误：找不到扩展目录
+
+**问题**：OpenClaw 版本不支持 `openclaw extensions dir` 命令
+
+**解决**：使用 `npm root -g` 查找 npm 全局路径，然后添加 `/openclaw/extensions`
+
+或查看 OpenClaw 配置位置：
+```bash
+openclaw config
+```
+
+**常见路径：**
+- **Linux/Mac**: `~/.openclaw/extensions`
+- **Windows**: `%APPDATA%\npm\node_modules\openclaw\extensions`
 | 命令无响应 | `[mixin] route result: FOUND` | 确认用户在 `allowFrom` 白名单中 |
 
 ## 网络重试机制

@@ -1,8 +1,9 @@
 node_modules/
 dist/
+.git/
 .env
 *.log
 .DS_Store
-*.js
 .opencode/
 AGENTS.md
+package-lock.json
