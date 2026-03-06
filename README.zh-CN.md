@@ -1,6 +1,6 @@
 # MixinClaw
 
-将 [Mixin Messenger](https://mixin.one/messenger) 接入 [OpenClaw](https://openclaw.ai) AI 助手平台的频道插件。
+将 [Mixin Messenger](https://mixin.one/messenger) 接入 [OpenClaw](https://openclaw.ai) 频道的插件。
 
 **[🇬🇧 English Documentation](README.md)**
 
