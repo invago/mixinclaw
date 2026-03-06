@@ -313,7 +313,6 @@ mixin-claw/
 
 ## 相关链接
 
-- [MixinClaw npm 包](https://www.npmjs.com/package/@invago/mixinclaw)
 - [OpenClaw 文档](https://openclaw.ai)
 - [Mixin Developers Dashboard](https://developers.mixin.one/dashboard)
 - [Mixin Bot API 文档](https://developers.mixin.one/docs/bot-api)

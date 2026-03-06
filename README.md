@@ -301,7 +301,6 @@ mixin-claw/
 
 ## Related Links
 
-- [MixinClaw npm Package](https://www.npmjs.com/package/@invago/mixinclaw)
 - [OpenClaw Documentation](https://openclaw.ai)
 - [Mixin Developers Dashboard](https://developers.mixin.one/dashboard)
 - [Mixin Bot API Documentation](https://developers.mixin.one/docs/bot-api)
