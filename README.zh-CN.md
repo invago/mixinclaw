@@ -31,6 +31,8 @@ npm install @invago/mixinclaw --prefix %APPDATA%\npm\node_modules\openclaw\exten
 
 #### 方式 B：Git 安装（开发/测试）
 
+直接克隆到 OpenClaw 扩展目录：
+
 ```bash
 # Linux/Mac
 git clone https://github.com/invago/mixinclaw.git /usr/lib/node_modules/openclaw/extensions/mixin
@@ -40,10 +42,13 @@ git clone https://github.com/invago/mixinclaw.git "$env:APPDATA\npm\node_modules
 ```
 
 **注意**：Git 安装后，需要在 `mixin` 目录内运行 `npm install` 安装依赖。
+
 ```bash
 cd /usr/lib/node_modules/openclaw/extensions/mixin
 npm install
 ```
+
+**更新**：随时可以运行 `git pull origin main` 拉取最新代码。
 
 ### 2. 创建 Mixin Bot
 

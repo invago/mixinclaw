@@ -31,6 +31,8 @@ npm install @invago/mixinclaw --prefix %APPDATA%\npm\node_modules\openclaw\exten
 
 #### Option B: Git Installation (Development)
 
+Clone directly to OpenClaw extensions directory:
+
 ```bash
 # Linux/Mac
 git clone https://github.com/invago/mixinclaw.git /usr/lib/node_modules/openclaw/extensions/mixin
@@ -40,14 +42,13 @@ git clone https://github.com/invago/mixinclaw.git "$env:APPDATA\npm\node_modules
 ```
 
 **Note**: After Git installation, run `npm install` inside the `mixin` directory to install dependencies.
+
 ```bash
 cd /usr/lib/node_modules/openclaw/extensions/mixin
 npm install
 ```
 
-**Note**: After Git installation, run `npm install` inside the `mixin` directory to install dependencies.
-```bash
-cd ~/.openclaw/extensions/mixin
+**Update**: Pull latest changes anytime with `git pull origin main`.
 npm install
 ```
 
