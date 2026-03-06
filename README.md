@@ -1,6 +1,6 @@
 # MixinClaw
 
-Connect [Mixin Messenger](https://mixin.one/messenger) to [OpenClaw](https://openclaw.ai) AI assistant platform.
+Connect [Mixin Messenger](https://mixin.one/messenger) to [OpenClaw](https://openclaw.ai) 
 
 **[🇨🇳 中文文档](README.zh-CN.md)**
 
