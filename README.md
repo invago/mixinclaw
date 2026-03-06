@@ -23,7 +23,7 @@ This returns your global npm path. Append `/openclaw/extensions` to get the targ
 **Step 2: Install**
 ```bash
 # Linux/Mac example
-npm install @invago/mixinclaw --prefix ~/.openclaw/extensions
+npm install @invago/mixinclaw --prefix /usr/lib/node_modules/openclaw/extensions
 
 # Windows example
 npm install @invago/mixinclaw --prefix %APPDATA%\npm\node_modules\openclaw\extensions
@@ -33,10 +33,16 @@ npm install @invago/mixinclaw --prefix %APPDATA%\npm\node_modules\openclaw\exten
 
 ```bash
 # Linux/Mac
-git clone https://github.com/invago/mixinclaw.git ~/.openclaw/extensions/mixin
+git clone https://github.com/invago/mixinclaw.git /usr/lib/node_modules/openclaw/extensions/mixin
 
 # Windows PowerShell
 git clone https://github.com/invago/mixinclaw.git "$env:APPDATA\npm\node_modules\openclaw\extensions\mixin"
+```
+
+**Note**: After Git installation, run `npm install` inside the `mixin` directory to install dependencies.
+```bash
+cd /usr/lib/node_modules/openclaw/extensions/mixin
+npm install
 ```
 
 **Note**: After Git installation, run `npm install` inside the `mixin` directory to install dependencies.

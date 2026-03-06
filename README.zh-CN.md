@@ -23,7 +23,7 @@ npm root -g
 **步骤 2：安装**
 ```bash
 # Linux/Mac 示例
-npm install @invago/mixinclaw --prefix ~/.openclaw/extensions
+npm install @invago/mixinclaw --prefix /usr/lib/node_modules/openclaw/extensions
 
 # Windows 示例
 npm install @invago/mixinclaw --prefix %APPDATA%\npm\node_modules\openclaw\extensions
@@ -33,7 +33,7 @@ npm install @invago/mixinclaw --prefix %APPDATA%\npm\node_modules\openclaw\exten
 
 ```bash
 # Linux/Mac
-git clone https://github.com/invago/mixinclaw.git ~/.openclaw/extensions/mixin
+git clone https://github.com/invago/mixinclaw.git /usr/lib/node_modules/openclaw/extensions/mixin
 
 # Windows PowerShell
 git clone https://github.com/invago/mixinclaw.git "$env:APPDATA\npm\node_modules\openclaw\extensions\mixin"
@@ -41,7 +41,7 @@ git clone https://github.com/invago/mixinclaw.git "$env:APPDATA\npm\node_modules
 
 **注意**：Git 安装后，需要在 `mixin` 目录内运行 `npm install` 安装依赖。
 ```bash
-cd ~/.openclaw/extensions/mixin
+cd /usr/lib/node_modules/openclaw/extensions/mixin
 npm install
 ```
 
