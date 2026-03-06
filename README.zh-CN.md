@@ -17,7 +17,7 @@ npm root -g
 这将返回全局 npm 路径。添加 `/openclaw/extensions` 得到目标目录。
 
 **常见路径：**
-- **Linux/Mac**: `~/.openclaw/extensions` 或 `/usr/local/lib/node_modules/openclaw/extensions`
+- **Linux/Mac**: `~/.openclaw/extensions` 或 `/usr/lib/node_modules/openclaw/extensions`
 - **Windows**: `%APPDATA%\npm\node_modules\openclaw\extensions`
 
 **步骤 2：安装**

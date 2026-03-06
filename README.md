@@ -17,7 +17,7 @@ npm root -g
 This returns your global npm path. Append `/openclaw/extensions` to get the target directory.
 
 **Common paths by OS:**
-- **Linux/Mac**: `~/.openclaw/extensions` or `/usr/local/lib/node_modules/openclaw/extensions`
+- **Linux/Mac**: `~/.openclaw/extensions` or `/usr/lib/node_modules/openclaw/extensions`
 - **Windows**: `%APPDATA%\npm\node_modules\openclaw\extensions`
 
 **Step 2: Install**
