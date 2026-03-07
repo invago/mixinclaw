@@ -1,16 +1,14 @@
 # MixinClaw
 
-将 [Mixin Messenger](https://mixin.one/messenger) 接入 [OpenClaw](https://openclaw.ai) 频道的插件。
+将 [Mixin Messenger](https://mixin.one/messenger) 接入 [OpenClaw](https://openclaw.ai)。
 
-**[🇬🇧 English Documentation](README.md)**
+**[English Documentation](README.md)**
 
-## 快速开始（5 分钟）
+## 快速开始
 
 ### 1. 安装
 
-#### Git 安装
-
-直接克隆到 OpenClaw 扩展目录：
+将插件克隆到 OpenClaw 扩展目录：
 
 ```bash
 # Linux/Mac
@@ -20,29 +18,25 @@ git clone https://github.com/invago/mixinclaw.git /usr/lib/node_modules/openclaw
 git clone https://github.com/invago/mixinclaw.git "$env:APPDATA\npm\node_modules\openclaw\extensions\mixin"
 ```
 
-**注意**：Git 安装后，需要在 `mixin` 目录内运行 `npm install` 安装依赖。
+安装依赖：
 
 ```bash
 cd /usr/lib/node_modules/openclaw/extensions/mixin
 npm install
 ```
 
-**更新**：随时可以运行 `git pull origin main` 拉取最新代码。
-
 ### 2. 创建 Mixin Bot
 
-1. 访问 [Mixin Developers Dashboard](https://developers.mixin.one/dashboard)
-2. 使用 Mixin Messenger 扫描二维码登录
-3. 点击"+"创建新机器人
-4. 获取凭证：
-   - **App ID** (UUID)
-   - **Session ID** (UUID)
-   - **Server Public Key** (Base64)
-   - **Session Private Key** (Ed25519 Base64)
+前往 [Mixin Developers Dashboard](https://developers.mixin.one/dashboard)，创建机器人并记录以下凭证：
+
+- `appId`
+- `sessionId`
+- `serverPublicKey`
+- `sessionPrivateKey`
 
 ### 3. 配置
 
-编辑 OpenClaw 配置文件（运行 `openclaw config` 查看位置）：
+运行 `openclaw config` 找到配置文件，然后添加：
 
 ```json
 {
@@ -50,184 +44,14 @@ npm install
     "mixin": {
       "appId": "你的 App ID",
       "sessionId": "你的 Session ID",
-      "serverPublicKey": "服务器公钥 Base64",
+      "serverPublicKey": "服务端公钥 Base64",
       "sessionPrivateKey": "会话私钥 Base64",
-      "allowFrom": ["授权用户 UUID"]
-    }
-  },
-  "plugins": {
-    "allow": ["mixin"],
-    "entries": {
-      "mixin": { "enabled": true }
-    }
-  }
-}
-```
-
-**重要**：需要将 `mixin` 同时添加到 `plugins.allow` 和 `plugins.entries` 配置段。
-
-### 4. 启动
-
-```bash
-openclaw status
-```
-
-看到 `[mixin] connected to Mixin Blaze` 表示连接成功。
-
-### 5. 测试
-
-在 Mixin Messenger 中向 Bot 发送：
-- **私聊**：`/status` 或 `你好`
-- **群聊**：`@Bot 你的问题`（需包含 `?`、`帮`、`请` 等触发词）
-
-## 配置参数
-
-| 参数 | 必填 | 默认值 | 说明 |
-|------|------|--------|------|
-| `appId` | ✅ | - | Mixin 应用 UUID |
-| `sessionId` | ✅ | - | 会话 UUID |
-| `serverPublicKey` | ✅ | - | 服务器公钥 Base64 |
-| `sessionPrivateKey` | ✅ | - | 会话私钥 Ed25519 Base64 |
-| `allowFrom` | ❌ | `[]` | 白名单用户 UUID 列表 |
-| `requireMentionInGroup` | ❌ | `true` | 群组消息需要触发词 |
-| `debug` | ❌ | `false` | 调试模式 |
-
-## 功能特性
-
-- ✅ 实时消息接收（Mixin Blaze WebSocket）
-- ✅ 私聊和群组消息支持
-- ✅ 自动消息去重
-- ✅ 群组触发词过滤（`?`、`帮`、`请`、`分析`）
-- ✅ 内置命令（`/models`、`/status`、`/queue`、`/help`）
-- ✅ 白名单访问控制
-- ✅ **永不放弃的重试机制**（温和递增：1 秒 → 3 秒上限）
-- ✅ 支持多账号配置
-
-## 使用指南
-
-### 私聊场景
-
-直接发送消息：
-```
-你好！
-/status
-/model
-```
-
-### 群组场景
-
-需要@Bot 并包含触发词：
-```
-@Bot 这是什么意思？
-@Bot 帮我分析一下
-@Bot 请总结
-```
-
-**触发词**：`?`、`帮`、`请`、`分析`、`总结`、`help`
-
-### 内置命令
-
-需要白名单权限：
-
-| 命令 | 说明 |
-|------|------|
-| `/models` | 查看可用 AI 模型 |
-| `/models <provider>` | 查看指定 Provider 的模型 |
-| `/status` | 查看系统状态 |
-| `/queue` | 查看任务队列 |
-| `/help` | 查看帮助信息 |
-
-### 获取用户 UUID
-
-1. 向 Bot 发送任意消息
-2. 查看日志中的 `user_id: xxx`
-3. 复制 UUID 到 `allowFrom` 列表
-
-## 故障排查
-
-| 问题 | 日志 | 解决方案 |
-|------|------|----------|
-| 连接失败 | `connecting to Mixin Blaze` 循环 | 检查 4 个凭证，私钥为 Ed25519 格式（44 字符） |
-| 收不到消息 | 无 `[mixin] message:` | 检查 `allowFrom` 白名单，群组需触发词 |
-| 消息被过滤 | `[mixin] group message filtered` | 添加 `?`、`帮`、`请` 等触发词 |
-| 发送失败 | `sendText failed: timeout` | **永久自动重试**（温和递增：1s→3s），网络恢复后自动发送 |
-| 命令无响应 | `[mixin] route result: FOUND` | 确认用户在 `allowFrom` 白名单中 |
-
-### 安装问题
-
-#### 错误：Permission denied (publickey)
-
-**问题**：npm 试图通过 SSH 克隆
-
-**解决**：
-```bash
-# 清理 npm 缓存
-npm cache clean --force
-
-# 检查 registry（应返回 https://registry.npmjs.org/）
-npm config get registry
-
-# 重新安装
-npm install @invago/mixinclaw
-```
-
-#### 错误：找不到扩展目录
-
-**问题**：OpenClaw 版本不支持 `openclaw extensions dir` 命令
-
-**解决**：使用 `npm root -g` 查找 npm 全局路径，然后添加 `/openclaw/extensions`
-
-或查看 OpenClaw 配置位置：
-```bash
-openclaw config
-```
-
-**常见路径：**
-- **Linux/Mac**: `~/.openclaw/extensions`
-- **Windows**: `%APPDATA%\npm\node_modules\openclaw\extensions`
-| 命令无响应 | `[mixin] route result: FOUND` | 确认用户在 `allowFrom` 白名单中 |
-
-## 网络重试机制
-
-**永不放弃的重试策略**，专为不稳定国际网络设计：
-
-```
-第 1 次：立即
-第 2 次：1 秒后
-第 3 次：1.5 秒后
-第 4 次：2.25 秒后
-第 5 次及以后：3 秒后（上限）
-```
-
-**优势**：
-- ✅ 插件永久在线（无需手动重启）
-- ✅ 网络恢复后快速响应（最多等待 3 秒）
-- ✅ 温和退避避免服务器压力
-- ✅ 适合中国访问外网的网络波动场景
-
-## 高级配置
-
-### 多账号配置
-
-```json
-{
-  "channels": {
-    "mixin": {
-      "accounts": {
-        "bot1": {
-          "name": "客服机器人",
-          "appId": "...",
-          "sessionId": "...",
-          "serverPublicKey": "...",
-          "sessionPrivateKey": "..."
-        },
-        "bot2": {
-          "name": "技术支持",
-          "appId": "...",
-          "sessionId": "...",
-          "serverPublicKey": "...",
-          "sessionPrivateKey": "..."
-        }
+      "allowFrom": ["授权用户 UUID"],
+      "proxy": {
+        "enabled": true,
+        "url": "socks5://127.0.0.1:10808",
+        "username": "proxy-user",
+        "password": "proxy-pass"
       }
     }
   },
@@ -240,131 +64,104 @@ openclaw config
 }
 ```
 
-### 环境变量配置
+说明：
+
+- `mixin` 需要同时出现在 `plugins.allow` 和 `plugins.entries` 中。
+- `proxy` 是可选项。
+- 代理只作用于这个插件，不影响 OpenClaw 其他插件。
+- Mixin 的 HTTP 请求和 Blaze WebSocket 都会走同一个代理。
+- 如果 `proxy.url` 里已经包含认证信息，可以不再填写 `proxy.username` 和 `proxy.password`。
+
+### 4. 启动
+
+```bash
+openclaw status
+```
+
+日志中看到 `[mixin] connected to Mixin Blaze` 表示连接成功。
+
+### 5. 测试
+
+- 私聊：`/status` 或 `你好`
+- 群聊：`@Bot 你的问题`，并带上 `?` 或 `help` 等触发词
+
+## 配置参数
+
+| 参数 | 必填 | 默认值 | 说明 |
+|------|------|--------|------|
+| `appId` | 是 | - | Mixin 应用 UUID |
+| `sessionId` | 是 | - | 会话 UUID |
+| `serverPublicKey` | 是 | - | 服务端公钥 Base64 |
+| `sessionPrivateKey` | 是 | - | 会话私钥 Ed25519 Base64 |
+| `allowFrom` | 否 | `[]` | 授权用户 UUID 白名单 |
+| `requireMentionInGroup` | 否 | `true` | 群聊是否要求触发词 |
+| `debug` | 否 | `false` | 调试模式 |
+| `proxy.enabled` | 否 | `false` | 是否启用插件级代理 |
+| `proxy.url` | 启用时必填 | - | 代理地址，例如 `http://127.0.0.1:7890` 或 `socks5://127.0.0.1:10808` |
+| `proxy.username` | 否 | - | 代理用户名 |
+| `proxy.password` | 否 | - | 代理密码 |
+
+## 功能
+
+- 使用 Mixin Blaze WebSocket 接收消息
+- 使用 HTTP 发送消息
+- 发送消息持久化 outbox，失败自动重试直到成功
+- 支持私聊和群聊
+- 消息去重
+- 基于白名单的访问控制
+- 支持多账号
+- 支持 HTTP 和 WebSocket 全量走插件级认证代理
+
+## 重试机制
+
+- 回复消息会先写入本地 outbox，再由后台 worker 发送。
+- 发送失败会自动重试，直到发送成功。
+- 插件重启后，未完成的消息仍会继续补发。
+
+## 运维命令
+
+- 发送 `/mixin-outbox` 可查看当前待发队列数量、下次重试时间和最近错误。
+
+## 多账号示例
 
 ```json
 {
   "channels": {
     "mixin": {
-      "appId": "${MIXIN_APP_ID}",
-      "sessionId": "${MIXIN_SESSION_ID}",
-      "serverPublicKey": "${MIXIN_SERVER_PUBLIC_KEY}",
-      "sessionPrivateKey": "${MIXIN_SESSION_PRIVATE_KEY}"
-    }
-  },
-  "plugins": {
-    "allow": ["mixin"],
-    "entries": {
-      "mixin": { "enabled": true }
+      "accounts": {
+        "bot1": {
+          "name": "客服机器人",
+          "appId": "...",
+          "sessionId": "...",
+          "serverPublicKey": "...",
+          "sessionPrivateKey": "...",
+          "allowFrom": ["..."]
+        },
+        "bot2": {
+          "name": "技术支持机器人",
+          "appId": "...",
+          "sessionId": "...",
+          "serverPublicKey": "...",
+          "sessionPrivateKey": "...",
+          "proxy": {
+            "enabled": true,
+            "url": "http://127.0.0.1:7890"
+          }
+        }
+      }
     }
   }
 }
 ```
 
-设置环境变量：
-```bash
-export MIXIN_APP_ID="your-app-id"
-export MIXIN_SESSION_ID="your-session-id"
-export MIXIN_SERVER_PUBLIC_KEY="your-public-key"
-export MIXIN_SESSION_PRIVATE_KEY="your-private-key"
-```
+## 安全提示
 
-## 项目结构
-
-```
-mixin-claw/
-├── index.ts                  # 插件入口
-├── package.json              # npm 配置
-├── openclaw.plugin.json      # OpenClaw 插件清单
-├── tsconfig.json             # TypeScript 配置
-├── README.md                 # 英文文档
-├── README.zh-CN.md           # 中文文档
-├── .gitignore                # Git 忽略规则
-└── src/                      # 源代码
-    ├── channel.ts            # 频道定义与连接逻辑
-    ├── config-schema.ts      # Zod schema 配置
-    ├── config.ts             # 配置解析
-    ├── runtime.ts            # 运行时单例
-    ├── inbound-handler.ts    # 消息接收处理
-    ├── send-service.ts       # 消息发送（含重试机制）
-    ├── crypto.ts             # 加密工具
-    └── decrypt.ts            # 解密工具
-```
-
-**主要特点**：
-- ✅ 零预编译（OpenClaw 使用 jiti 运行时编译 TypeScript）
-- ✅ 简洁的源码结构
-- ✅ 完整的 TypeScript 类型支持
-- ✅ 模块化设计便于维护
-
-## 开发
-
-1. **私钥保护**：
-   - 不要在代码中硬编码私钥
-   - 使用环境变量或加密配置文件
-   - 定期更换 Session 私钥
-
-2. **访问控制**：
-   - 生产环境务必配置 `allowFrom` 白名单
-
-3. **日志安全**：
-   - 日志中会脱敏显示 App ID 和 Session ID
-   - 不要将日志文件上传到公开平台
+- 妥善保管 `sessionPrivateKey`
+- 生产环境务必配置 `allowFrom`
+- outbox 文件会保存待发送消息正文，不要暴露 `data/` 目录
 
 ## 相关链接
 
 - [OpenClaw 文档](https://openclaw.ai)
 - [Mixin Developers Dashboard](https://developers.mixin.one/dashboard)
 - [Mixin Bot API 文档](https://developers.mixin.one/docs/bot-api)
-- [Mixin Node.js SDK](https://github.com/MixinNetwork/bot-api-nodejs-client)
-- [MixinClaw GitHub 仓库](https://github.com/invago/mixinclaw)
-
-## 许可证
-
-MIT License
-
-## 贡献
-
-欢迎提交 Issue 和 Pull Request！
-
-## 更新日志
-
-### v1.0.5 (2026-03-05)
-
-- ✅ **项目结构清理** (移除 dist/, 部署脚本，.env.example, .opencode/)
-- ✅ **零预编译** (OpenClaw 使用 jiti 运行时 TypeScript 编译)
-- ✅ **简洁最小化结构** (根目录仅 10 个文件，简化部署)
-- ✅ **添加完整项目结构文档** 到 README
-- ✅ **体积减少 95%** (2MB → 100KB)
-- ✅ **无需构建步骤** (仅复制源文件)
-
-### v1.0.4 (2026-03-04)
-
-- ✅ **永不放弃的重试机制**（无限重试，无需手动重启）
-- ✅ 温和递增退避（1 秒 → 1.5 秒 → 2.25 秒 → 3 秒上限）
-- ✅ 网络快速恢复（最多等待 3 秒）
-- ✅ 专为不稳定国际网络设计
-- ✅ 插件 7×24 小时持续运行
-
-### v1.0.2 (2026-03-04)
-
-- ✅ 添加消息发送重试机制（指数退避策略）
-- ✅ 修复私聊和群聊消息发送逻辑
-- ✅ 优化项目结构（rootDir 改为 ./src）
-- ✅ 添加详细的发送日志（包含尝试次数）
-- ✅ 智能重试（仅网络超时错误）
-
-### v1.0.1 (2026-03-03)
-
-- ✅ 添加内置命令支持（`/models`, `/status`, `/queue`, `/help`）
-- ✅ 实现完整的 `CommandBody` 和 `CommandAuthorized` 处理
-- ✅ 支持 access groups 配置
-- ✅ 修复命令消息未响应的问题
-
-### v1.0.0 (2026-02-26)
-
-- 首次发布
-- 支持 Mixin Blaze WebSocket 消息接收
-- 支持私聊/群组消息
-- 自动重连、消息去重、白名单访问控制
-- TypeScript 重写，符合 OpenClaw 插件规范

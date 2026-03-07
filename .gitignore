@@ -6,3 +6,7 @@ dist/
 *.js
 .opencode/
 AGENTS.md
+.evomap-node.json
+.npmignore
+data/mixin-outbox.json
+data/mixin-outbox.json.tmp

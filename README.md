@@ -1,16 +1,14 @@
 # MixinClaw
 
-Connect [Mixin Messenger](https://mixin.one/messenger) to [OpenClaw](https://openclaw.ai) 
+Connect [Mixin Messenger](https://mixin.one/messenger) to [OpenClaw](https://openclaw.ai).
 
-**[🇨🇳 中文文档](README.zh-CN.md)**
+**[Chinese Documentation](README.zh-CN.md)**
 
-## Quick Start (5 minutes)
+## Quick Start
 
 ### 1. Install
 
-#### Git Installation
-
-Clone directly to OpenClaw extensions directory:
+Clone this plugin into the OpenClaw extensions directory:
 
 ```bash
 # Linux/Mac
@@ -20,29 +18,25 @@ git clone https://github.com/invago/mixinclaw.git /usr/lib/node_modules/openclaw
 git clone https://github.com/invago/mixinclaw.git "$env:APPDATA\npm\node_modules\openclaw\extensions\mixin"
 ```
 
-**Note**: After Git installation, run `npm install` inside the `mixin` directory to install dependencies.
+Install dependencies:
 
 ```bash
 cd /usr/lib/node_modules/openclaw/extensions/mixin
 npm install
 ```
 
-**Update**: Pull latest changes anytime with `git pull origin main`.
+### 2. Create a Mixin Bot
 
-### 2. Create Mixin Bot
+Go to [Mixin Developers Dashboard](https://developers.mixin.one/dashboard), create a bot, and collect:
 
-1. Visit [Mixin Developers Dashboard](https://developers.mixin.one/dashboard)
-2. Scan QR code with Mixin Messenger to login
-3. Click "+" to create a new bot
-4. Get credentials:
-   - **App ID** (UUID)
-   - **Session ID** (UUID)
-   - **Server Public Key** (Base64)
-   - **Session Private Key** (Ed25519 Base64)
+- `appId`
+- `sessionId`
+- `serverPublicKey`
+- `sessionPrivateKey`
 
 ### 3. Configure
 
-Edit OpenClaw config file (run `openclaw config` to find location):
+Run `openclaw config` to find your config file, then add:
 
 ```json
 {
@@ -52,7 +46,13 @@ Edit OpenClaw config file (run `openclaw config` to find location):
       "sessionId": "YOUR_SESSION_ID",
       "serverPublicKey": "YOUR_SERVER_PUBLIC_KEY_BASE64",
       "sessionPrivateKey": "YOUR_SESSION_PRIVATE_KEY_BASE64",
-      "allowFrom": ["AUTHORIZED_USER_UUID"]
+      "allowFrom": ["AUTHORIZED_USER_UUID"],
+      "proxy": {
+        "enabled": true,
+        "url": "socks5://127.0.0.1:10808",
+        "username": "proxy-user",
+        "password": "proxy-pass"
+      }
     }
   },
   "plugins": {
@@ -64,7 +64,13 @@ Edit OpenClaw config file (run `openclaw config` to find location):
 }
 ```
 
-**Important**: Add `mixin` to both `plugins.allow` and `plugins.entries` sections.
+Notes:
+
+- Add `mixin` to both `plugins.allow` and `plugins.entries`.
+- `proxy` is optional.
+- The proxy applies only to this plugin.
+- Both Mixin HTTP requests and Blaze WebSocket traffic use the same proxy.
+- If credentials are already embedded in `proxy.url`, `proxy.username` and `proxy.password` can be omitted.
 
 ### 4. Start
 
@@ -72,141 +78,50 @@ Edit OpenClaw config file (run `openclaw config` to find location):
 openclaw status
 ```
 
-Look for `[mixin] connected to Mixin Blaze` in logs to confirm successful connection.
+Check logs for `[mixin] connected to Mixin Blaze`.
 
 ### 5. Test
 
-Send messages to your bot in Mixin Messenger:
-- **Direct message**: `/status` or `Hello`
-- **Group message**: `@Bot your question` (must include trigger words like `?`, `help`)
+- Direct message: `/status` or `Hello`
+- Group message: `@Bot your question` with trigger words such as `?` or `help`
 
 ## Configuration
 
 | Parameter | Required | Default | Description |
 |-----------|----------|---------|-------------|
-| `appId` | ✅ | - | Mixin App UUID |
-| `sessionId` | ✅ | - | Session UUID |
-| `serverPublicKey` | ✅ | - | Server Public Key (Base64) |
-| `sessionPrivateKey` | ✅ | - | Session Private Key (Ed25519 Base64) |
-| `allowFrom` | ❌ | `[]` | Whitelist of authorized user UUIDs |
-| `requireMentionInGroup` | ❌ | `true` | Require trigger words in groups |
-| `debug` | ❌ | `false` | Debug mode |
+| `appId` | Yes | - | Mixin App UUID |
+| `sessionId` | Yes | - | Session UUID |
+| `serverPublicKey` | Yes | - | Server Public Key (Base64) |
+| `sessionPrivateKey` | Yes | - | Session Private Key (Ed25519 Base64) |
+| `allowFrom` | No | `[]` | Authorized user UUID whitelist |
+| `requireMentionInGroup` | No | `true` | Require trigger words in group chats |
+| `debug` | No | `false` | Debug mode |
+| `proxy.enabled` | No | `false` | Enable per-plugin proxy |
+| `proxy.url` | Required when enabled | - | Proxy URL such as `http://127.0.0.1:7890` or `socks5://127.0.0.1:10808` |
+| `proxy.username` | No | - | Proxy username |
+| `proxy.password` | No | - | Proxy password |
 
 ## Features
 
-- ✅ Real-time message reception (Mixin Blaze WebSocket)
-- ✅ Direct and group message support
-- ✅ Automatic message deduplication
-- ✅ Smart group message filtering (trigger words: `?`, `help`, `analyze`)
-- ✅ Built-in commands (`/models`, `/status`, `/queue`, `/help`)
-- ✅ Whitelist-based access control
-- ✅ **Never-stop retry** on network errors (gentle backoff: 1s → 3s cap)
-- ✅ Multi-account support
+- Mixin Blaze WebSocket inbound messaging
+- HTTP outbound messaging with persistent outbox retry
+- Direct and group chat support
+- Message deduplication
+- Allowlist-based access control
+- Multi-account support
+- Per-plugin authenticated proxy support for both HTTP and WebSocket
 
-## Usage
+## Retry Behavior
 
-### Direct Messages
+- Outbound messages are persisted to a local outbox before send attempts.
+- Failed sends are retried automatically until they succeed.
+- Pending messages survive plugin restarts.
 
-Send messages directly to bot:
-```
-Hello!
-/status
-/model
-```
+## Operations
 
-### Group Messages
+- Send `/mixin-outbox` to inspect current pending queue size, next retry time, and latest error.
 
-Must @Bot and include trigger words:
-```
-@Bot What does this mean?
-@Bot Help me analyze this
-@Bot Please summarize
-```
-
-**Trigger words**: `?`, `help`, `analyze`, `summarize`, `please`
-
-### Built-in Commands
-
-Require whitelist permission:
-
-| Command | Description |
-|---------|-------------|
-| `/models` | List available AI models |
-| `/models <provider>` | List models from specific provider |
-| `/status` | Check system status |
-| `/queue` | View task queue |
-| `/help` | Show help information |
-
-### Get User UUID
-
-1. Send any message to the bot
-2. Check logs for `user_id: xxx`
-3. Copy UUID to `allowFrom` list
-
-## Troubleshooting
-
-| Issue | Log Message | Solution |
-|-------|-------------|----------|
-| Connection failed | `connecting to Mixin Blaze` loop | Verify all 4 credentials, private key must be Ed25519 (44 chars) |
-| Not receiving messages | No `[mixin] message:` log | Check `allowFrom` whitelist, groups need trigger words |
-| Message filtered | `[mixin] group message filtered` | Add trigger words (`?`, `help`) or set `requireMentionInGroup: false` |
-| Send failed | `sendText failed: timeout` | **Auto-retrying forever** (gentle backoff: 1s→3s), will send when network returns |
-| Commands not working | `[mixin] route result: FOUND` | Ensure user is in `allowFrom` whitelist |
-
-### Installation Issues
-
-#### Error: Permission denied (publickey)
-
-**Problem**: npm attempting to clone via SSH
-
-**Solution**:
-```bash
-# Clean npm cache
-npm cache clean --force
-
-# Verify registry (should return https://registry.npmjs.org/)
-npm config get registry
-
-# Reinstall
-npm install @invago/mixinclaw
-```
-
-#### Error: Cannot find extensions directory
-
-**Problem**: `openclaw extensions dir` command not available in your version
-
-**Solution**: Use `npm root -g` to find your npm global path, then append `/openclaw/extensions`
-
-Or check OpenClaw config location:
-```bash
-openclaw config
-```
-
-**Common paths:**
-- **Linux/Mac**: `~/.openclaw/extensions`
-- **Windows**: `%APPDATA%\npm\node_modules\openclaw\extensions`
-
-## Network Retry Mechanism
-
-**Never-stop retry strategy** for unstable international networks:
-
-```
-Attempt 1: immediate
-Attempt 2: 1 second delay
-Attempt 3: 1.5 seconds delay
-Attempt 4: 2.25 seconds delay
-Attempt 5+: 3 seconds delay (cap)
-```
-
-**Benefits**:
-- ✅ Plugin stays alive indefinitely (no restart needed)
-- ✅ Fast recovery when network returns (max 3s wait)
-- ✅ Gentle backoff prevents server overload
-- ✅ Perfect for China-to-foreign network fluctuations
-
-## Advanced Configuration
-
-### Multi-Account Setup
+## Multi-Account Example
 
 ```json
 {
@@ -218,14 +133,19 @@ Attempt 5+: 3 seconds delay (cap)
           "appId": "...",
           "sessionId": "...",
           "serverPublicKey": "...",
-          "sessionPrivateKey": "..."
+          "sessionPrivateKey": "...",
+          "allowFrom": ["..."]
         },
         "bot2": {
           "name": "Tech Support Bot",
           "appId": "...",
           "sessionId": "...",
           "serverPublicKey": "...",
-          "sessionPrivateKey": "..."
+          "sessionPrivateKey": "...",
+          "proxy": {
+            "enabled": true,
+            "url": "http://127.0.0.1:7890"
+          }
         }
       }
     }
@@ -233,126 +153,14 @@ Attempt 5+: 3 seconds delay (cap)
 }
 ```
 
-### Environment Variables
+## Security Notes
 
-```json
-{
-  "channels": {
-    "mixin": {
-      "appId": "${MIXIN_APP_ID}",
-      "sessionId": "${MIXIN_SESSION_ID}",
-      "serverPublicKey": "${MIXIN_SERVER_PUBLIC_KEY}",
-      "sessionPrivateKey": "${MIXIN_SESSION_PRIVATE_KEY}"
-    }
-  }
-}
-```
+- Keep `sessionPrivateKey` private.
+- Use `allowFrom` in production.
+- Outbox files contain pending message bodies, so do not expose the `data/` directory.
 
-Set environment variables:
-```bash
-export MIXIN_APP_ID="your-app-id"
-export MIXIN_SESSION_ID="your-session-id"
-export MIXIN_SERVER_PUBLIC_KEY="your-public-key"
-export MIXIN_SESSION_PRIVATE_KEY="your-private-key"
-```
-
-## Project Structure
-
-```
-mixin-claw/
-├── index.ts                  # Plugin entry point
-├── package.json              # npm configuration
-├── openclaw.plugin.json      # OpenClaw plugin manifest
-├── tsconfig.json             # TypeScript configuration
-├── README.md                 # This file (English documentation)
-├── README.zh-CN.md           # Chinese documentation
-├── .gitignore                # Git ignore rules
-└── src/                      # Source code
-    ├── channel.ts            # Channel definition & connection logic
-    ├── config-schema.ts      # Zod schema for configuration
-    ├── config.ts             # Configuration parser
-    ├── runtime.ts            # Runtime singleton
-    ├── inbound-handler.ts    # Inbound message processing
-    ├── send-service.ts       # Outbound message sending (with retry)
-    ├── crypto.ts             # Crypto utilities
-    └── decrypt.ts            # Decryption utilities
-```
-
-**Key Features**:
-- ✅ Zero pre-compilation (OpenClaw uses jiti runtime TypeScript compilation)
-- ✅ Clean source structure 
-- ✅ Full TypeScript support with type safety
-- ✅ Modular design for maintainability
-
-## Security Best Practices
-
-1. **Protect Private Keys**:
-   - Never hardcode private keys in source code
-   - Use environment variables or encrypted config files
-   - Rotate Session Private Keys periodically
-
-2. **Access Control**:
-   - Always configure `allowFrom` whitelist in production
-   - Do not use `dmPolicy: open` (deprecated)
-
-3. **Log Security**:
-   - App IDs and Session IDs are masked in logs
-   - Do not upload log files to public platforms
-
-## Related Links
+## Links
 
 - [OpenClaw Documentation](https://openclaw.ai)
 - [Mixin Developers Dashboard](https://developers.mixin.one/dashboard)
 - [Mixin Bot API Documentation](https://developers.mixin.one/docs/bot-api)
-- [Mixin Node.js SDK](https://github.com/MixinNetwork/bot-api-nodejs-client)
-- [MixinClaw GitHub Repository](https://github.com/invago/mixinclaw)
-
-## License
-
-MIT License
-
-## Contributing
-
-Issues and Pull Requests are welcome!
-
-## Changelog
-
-### v1.0.5 (2026-03-05)
-
-- ✅ **Project structure cleanup** (removed dist/, deployment scripts, .env.example, .opencode/)
-- ✅ **Zero pre-compilation** (OpenClaw uses jiti runtime TypeScript compilation)
-- ✅ **Clean minimal structure** (10 files in root, simplified deployment)
-- ✅ **Added comprehensive project structure documentation** to README
-- ✅ **95% size reduction** (2MB → 100KB)
-- ✅ **No build step required** (copy source files only)
-
-### v1.0.4 (2026-03-04)
-
-- ✅ **Never-stop retry mechanism** (infinite retry, no manual restart needed)
-- ✅ Gentle incremental backoff (1s → 1.5s → 2.25s → 3s cap)
-- ✅ Fast network recovery (max 3 seconds wait time)
-- ✅ Perfect for unstable international networks
-- ✅ Plugin stays alive 24/7
-
-### v1.0.2 (2026-03-04)
-
-- ✅ Added message retry mechanism (exponential backoff)
-- ✅ Fixed direct and group message sending logic
-- ✅ Optimized project structure (rootDir changed to ./src)
-- ✅ Added detailed send logs with attempt count
-- ✅ Smart retry (only for network timeout errors)
-
-### v1.0.1 (2026-03-03)
-
-- ✅ Added built-in commands (`/models`, `/status`, `/queue`, `/help`)
-- ✅ Implemented `CommandBody` and `CommandAuthorized` handling
-- ✅ Added access groups support
-- ✅ Fixed unresponsive command messages
-
-### v1.0.0 (2026-02-26)
-
-- Initial release
-- Mixin Blaze WebSocket message reception
-- Direct and group message support
-- Auto-reconnect, message deduplication, whitelist access control
-- TypeScript rewrite, OpenClaw plugin compliant

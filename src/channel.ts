@@ -1,30 +1,25 @@
-import { MixinApi } from "@mixin.dev/mixin-node-sdk";
 import { buildChannelConfigSchema } from "openclaw/plugin-sdk";
 import type { ChannelGatewayContext, OpenClawConfig } from "openclaw/plugin-sdk";
+import { runBlazeLoop } from "./blaze-service.js";
 import { MixinConfigSchema } from "./config-schema.js";
-import {
-    listAccountIds,
-    resolveAccount,
-    isConfigured,
-    describeAccount,
-    getAccountConfig,
-  } from "./config.js";
+import { describeAccount, isConfigured, listAccountIds, resolveAccount } from "./config.js";
 import { handleMixinMessage, type MixinInboundMessage } from "./inbound-handler.js";
-import { sendTextMessage } from "./send-service.js";
+import { sendTextMessage, startSendWorker } from "./send-service.js";
 
 type ResolvedMixinAccount = ReturnType<typeof resolveAccount>;
 
-// 连接重试配置：永不放弃，温和递增退避
-const BASE_DELAY = 1000;      // 1 秒起
-const MAX_DELAY = 3000;       // 最多 3 秒（上限）
-const MULTIPLIER = 1.5;       // 每次增加 50%
+const BASE_DELAY = 1000;
+const MAX_DELAY = 3000;
+const MULTIPLIER = 1.5;
 
 async function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function maskKey(key: string): string {
-  if (!key || key.length < 8) return "****";
+  if (!key || key.length < 8) {
+    return "****";
+  }
   return key.slice(0, 4) + "****" + key.slice(-4);
 }
 
@@ -36,7 +31,7 @@ export const mixinPlugin = {
     label: "Mixin Messenger",
     selectionLabel: "Mixin Messenger (Blaze WebSocket)",
     docsPath: "/channels/mixin",
-    blurb: "通过 Mixin Blaze WebSocket 接入 Mixin Messenger 消息。",
+    blurb: "Mixin Messenger channel via Blaze WebSocket",
     aliases: ["mixin-messenger", "mixin"],
   },
 
@@ -58,23 +53,23 @@ export const mixinPlugin = {
     defaultAccountId: () => "default",
   },
 
-    security: {
-      resolveDmPolicy: ({ account, accountId }: { account: ResolvedMixinAccount; accountId?: string | null }) => {
-        const configKey = accountId ?? "default";
-        const allowFrom = account.config.allowFrom ?? [];
-        
-        return {
-          policy: "allowlist" as const,
-          allowFrom: allowFrom,
-          allowFromPath: `channels.mixin${accountId && accountId !== "default" ? `.accounts.${accountId}` : ""}.allowFrom`,
-          approveHint: allowFrom.length > 0 
-            ? `已配置白名单用户数: ${allowFrom.length} | 将用户的 Mixin UUID 添加到 allowFrom 列表中`
-            : "将用户的 Mixin UUID 添加到 allowFrom 列表中",
-        };
-      },
-    },
+  security: {
+    resolveDmPolicy: ({ account, accountId }: { account: ResolvedMixinAccount; accountId?: string | null }) => {
+      const allowFrom = account.config.allowFrom ?? [];
+      const basePath = accountId && accountId !== "default" ? `.accounts.${accountId}` : "";
 
-   outbound: {
+      return {
+        policy: "allowlist" as const,
+        allowFrom,
+        allowFromPath: `channels.mixin${basePath}.allowFrom`,
+        approveHint: allowFrom.length > 0
+          ? `已配置白名单用户数 ${allowFrom.length}，将用户的 Mixin UUID 添加到 allowFrom 列表即可授权`
+          : "将用户的 Mixin UUID 添加到 allowFrom 列表即可授权",
+      };
+    },
+  },
+
+  outbound: {
     deliveryMode: "direct" as const,
 
     sendText: async (ctx: {
@@ -84,8 +79,7 @@ export const mixinPlugin = {
       accountId?: string | null;
     }) => {
       const id = ctx.accountId ?? "default";
-      const config = getAccountConfig(ctx.cfg, id);
-      const result = await sendTextMessage(config, ctx.to, undefined, ctx.text);
+      const result = await sendTextMessage(ctx.cfg, id, ctx.to, undefined, ctx.text);
       if (result.ok) {
         return { channel: "mixin", messageId: result.messageId ?? ctx.to };
       }
@@ -104,112 +98,91 @@ export const mixinPlugin = {
       const accountId = account.accountId;
       const config = account.config;
 
+      await startSendWorker(cfg, log);
+
       let stopped = false;
-      const stop = () => { stopped = true; };
+      const stop = () => {
+        stopped = true;
+      };
       abortSignal?.addEventListener("abort", stop);
 
       let attempt = 1;
       let delay = BASE_DELAY;
 
-       const runLoop = async () => {
-         while (!stopped) {
-           try {
-             log.info(`connecting to Mixin Blaze (attempt ${attempt + 1})`);
-             log.info(`config: appId=${maskKey(config.appId!)}, sessionId=${maskKey(config.sessionId!)}`);
+      const runLoop = async () => {
+        while (!stopped) {
+          try {
+            log.info(`connecting to Mixin Blaze (attempt ${attempt})`);
+            log.info(`config: appId=${maskKey(config.appId!)}, sessionId=${maskKey(config.sessionId!)}`);
 
-             const client = MixinApi({
-               keystore: {
-                 app_id: config.appId!,
-                 session_id: config.sessionId!,
-                 server_public_key: config.serverPublicKey!,
-                 session_private_key: config.sessionPrivateKey!,
-               },
-               blazeOptions: { parse: true, syncAck: true },
-             });
+            await runBlazeLoop({
+              config,
+              options: { parse: false, syncAck: true },
+              log,
+              abortSignal,
+              handler: {
+                onMessage: async (rawMsg: any) => {
+                  if (stopped) {
+                    return;
+                  }
+                  if (!rawMsg || !rawMsg.message_id) {
+                    return;
+                  }
+                  if (!rawMsg.user_id || rawMsg.user_id === config.appId) {
+                    return;
+                  }
 
-            await new Promise<void>((resolve, reject) => {
-              if (stopped) { resolve(); return; }
+                  const isDirect = rawMsg.conversation_id === undefined
+                    ? true
+                    : !rawMsg.representative_id;
 
-              try {
-                client.blaze.loop({
-onMessage: async (rawMsg: any) => {
-                     if (stopped) return;
-                      if (!rawMsg || !rawMsg.message_id) return;
-                      if (!rawMsg.user_id || rawMsg.user_id === config.appId) return;
+                  const msg: MixinInboundMessage = {
+                    conversationId: rawMsg.conversation_id ?? "",
+                    userId: rawMsg.user_id,
+                    messageId: rawMsg.message_id,
+                    category: rawMsg.category ?? "PLAIN_TEXT",
+                    data: rawMsg.data_base64 ?? rawMsg.data ?? "",
+                    createdAt: rawMsg.created_at ?? new Date().toISOString(),
+                  };
 
-                     const data = rawMsg?.data;
-
-                     // Mixin conversation_id 为群组时与私聊不同
-                     // 私聊: uniqueConversationID(appId, userId)，群组: 群组 UUID
-                     const isDirect = rawMsg.conversation_id === undefined
-                       ? true
-                       : !rawMsg.representative_id;
-
-                     const msg: MixinInboundMessage = {
-                       conversationId: rawMsg.conversation_id ?? "",
-                       userId: rawMsg.user_id,
-                       messageId: rawMsg.message_id,
-                       category: rawMsg.category ?? "PLAIN_TEXT",
-                       data: rawMsg.data_base64 ?? rawMsg.data ?? "",
-                       createdAt: rawMsg.created_at ?? new Date().toISOString(),
-                     };
-
-                     try {
-                       await handleMixinMessage({ cfg, accountId, msg, isDirect, log });
-                     } catch (err) {
-                       log.error(`error handling message ${msg.messageId}`, err);
-                     }
-                   },
-                });
-               } catch (err) {
-                 const errorMsg = err instanceof Error ? err.message : String(err);
-                 log.error(`blaze loop init error: ${errorMsg}`, err);
-                 reject(err);
-                 return;
-               }
-
-              abortSignal?.addEventListener("abort", () => resolve());
+                  try {
+                    await handleMixinMessage({ cfg, accountId, msg, isDirect, log });
+                  } catch (err) {
+                    log.error(`error handling message ${msg.messageId}`, err);
+                  }
+                },
+              },
             });
 
-            if (stopped) break;
-            attempt = 0;
-            } catch (err) {
-              if (stopped) break;
-              const errorMsg = err instanceof Error ? err.message : String(err);
-              log.error(`connection error: ${errorMsg}`, err);
-              
-              // 永不放弃的重试：温和递增退避
-              log.warn(`retrying in ${delay}ms (attempt ${attempt})`);
-              await sleep(delay);
-              
-              // 递增延迟，不超过上限
-              delay = Math.min(delay * MULTIPLIER, MAX_DELAY);
-              attempt++;
+            if (stopped) {
+              break;
             }
+
+            attempt = 1;
+            delay = BASE_DELAY;
+          } catch (err) {
+            if (stopped) {
+              break;
+            }
+            const errorMsg = err instanceof Error ? err.message : String(err);
+            log.error(`connection error: ${errorMsg}`, err);
+            log.warn(`retrying in ${delay}ms (attempt ${attempt})`);
+            await sleep(delay);
+            delay = Math.min(delay * MULTIPLIER, MAX_DELAY);
+            attempt++;
+          }
         }
 
         log.info("gateway stopped");
       };
 
-      // IMPORTANT: Await the runLoop directly to prevent OpenClaw's auto-restart mechanism.
-      // By awaiting, startAccount doesn't return immediately, so OpenClaw knows the channel
-      // is still initializing. The runLoop handles all errors internally with infinite retry.
-      const runLoopSilent = async () => {
-        try {
-          await runLoop();
-        } catch (err) {
-          // 理论上不会到这里，因为 runLoop 内部已经处理所有错误
-          const msg = err instanceof Error ? err.message : String(err);
-          log.error(`[internal] unexpected loop error: ${msg}`, err);
-          // 不重新抛出，让 OpenClaw 认为通道正常运行
-        }
-      };
+      try {
+        await runLoop();
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        log.error(`[internal] unexpected loop error: ${msg}`, err);
+      }
 
-      // 直接 await，不让 startAccount 立即返回
-      // 这样 OpenClaw 不会触发 auto-restart 机制
-      await runLoopSilent();
-
-      // 只有在 stopped 时才会到这里
       return { stop };
     },
   },
@@ -222,3 +195,5 @@ onMessage: async (rawMsg: any) => {
     },
   },
 };
+
+export { describeAccount, isConfigured };

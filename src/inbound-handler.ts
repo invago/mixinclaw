@@ -1,6 +1,6 @@
 import type { OpenClawConfig } from "openclaw/plugin-sdk";
 import { getMixinRuntime } from "./runtime.js";
-import { sendTextMessage } from "./send-service.js";
+import { getOutboxStatus, sendTextMessage } from "./send-service.js";
 import { getAccountConfig } from "./config.js";
 import type { MixinAccountConfig } from "./config-schema.js";
 
@@ -20,6 +20,7 @@ const processedMessages = new Set<string>();
 const MAX_DEDUP_SIZE = 2000;
 const unauthNotifiedUsers = new Map<string, number>();
 const UNAUTH_NOTIFY_INTERVAL = 20 * 60 * 1000;
+const MAX_UNAUTH_NOTIFY_USERS = 1000;
 
 function isProcessed(messageId: string): boolean {
   return processedMessages.has(messageId);
@@ -31,6 +32,22 @@ function markProcessed(messageId: string): void {
     if (first) processedMessages.delete(first);
   }
   processedMessages.add(messageId);
+}
+
+function pruneUnauthNotifiedUsers(now: number): void {
+  for (const [userId, lastNotified] of unauthNotifiedUsers) {
+    if (now - lastNotified > UNAUTH_NOTIFY_INTERVAL) {
+      unauthNotifiedUsers.delete(userId);
+    }
+  }
+
+  while (unauthNotifiedUsers.size >= MAX_UNAUTH_NOTIFY_USERS) {
+    const first = unauthNotifiedUsers.keys().next().value;
+    if (!first) {
+      break;
+    }
+    unauthNotifiedUsers.delete(first);
+  }
 }
 
 function decodeContent(category: string, data: string): string {
@@ -52,6 +69,28 @@ function shouldPassGroupFilter(config: MixinAccountConfig, text: string): boolea
     lower.includes("？") ||
     /帮|请|分析|总结|help/i.test(lower)
   );
+}
+
+function isOutboxCommand(text: string): boolean {
+  return text.trim().toLowerCase() === "/mixin-outbox";
+}
+
+function formatOutboxStatus(status: Awaited<ReturnType<typeof getOutboxStatus>>): string {
+  const lines = [
+    `Outbox pending: ${status.totalPending}`,
+    `Oldest pending: ${status.oldestPendingAt ?? "N/A"}`,
+    `Next attempt: ${status.nextAttemptAt ?? "N/A"}`,
+    `Latest error: ${status.latestError ?? "N/A"}`,
+  ];
+
+  if (status.pendingByAccount.length > 0) {
+    lines.push("By account:");
+    for (const item of status.pendingByAccount) {
+      lines.push(`- ${item.accountId}: ${item.pending}`);
+    }
+  }
+
+  return lines.join("\n");
 }
 
 export async function handleMixinMessage(params: {
@@ -78,10 +117,10 @@ export async function handleMixinMessage(params: {
          config.sessionPrivateKey!,
          config.sessionId!
        );
-       if (decrypted) {
-         log.info(`[mixin] decryption successful! content: "${decrypted.substring(0, 100)}..."`);
-         msg.data = Buffer.from(decrypted).toString("base64");
-         msg.category = "PLAIN_TEXT";
+        if (decrypted) {
+          log.info(`[mixin] decryption successful: messageId=${msg.messageId}, length=${decrypted.length}`);
+          msg.data = Buffer.from(decrypted).toString("base64");
+          msg.category = "PLAIN_TEXT";
        } else {
          log.error(`[mixin] decryption failed for ${msg.messageId}`);
          markProcessed(msg.messageId);
@@ -101,7 +140,7 @@ export async function handleMixinMessage(params: {
    }
 
    const text = decodeContent(msg.category, msg.data).trim();
-   log.info(`[mixin] decoded text (len=${text.length}): "${text.substring(0, 100)}..."`);
+   log.info(`[mixin] decoded text: messageId=${msg.messageId}, category=${msg.category}, length=${text.length}`);
 
   if (!text) return;
 
@@ -120,10 +159,11 @@ if (!config.allowFrom.includes(msg.userId)) {
        const now = Date.now();
        const lastNotified = unauthNotifiedUsers.get(msg.userId) ?? 0;
        
-       if (lastNotified === 0 || now - lastNotified > UNAUTH_NOTIFY_INTERVAL) {
-         unauthNotifiedUsers.set(msg.userId, now);
+        if (lastNotified === 0 || now - lastNotified > UNAUTH_NOTIFY_INTERVAL) {
+          pruneUnauthNotifiedUsers(now);
+          unauthNotifiedUsers.set(msg.userId, now);
          const msgBody = `⚠️ 请等待管理员认证\n\n您的 Mixin UUID: ${msg.userId}\n\n请将此UUID添加到 allowFrom 列表中完成认证`;
-          sendTextMessage(config, msg.conversationId, msg.userId, msgBody, log).catch(() => {});
+          sendTextMessage(cfg, accountId, msg.conversationId, msg.userId, msgBody, log).catch(() => {});
        }
        
        return;
@@ -131,6 +171,14 @@ if (!config.allowFrom.includes(msg.userId)) {
 
   // 标记为已处理
   markProcessed(msg.messageId);
+
+  if (isOutboxCommand(text)) {
+    const status = await getOutboxStatus();
+    const replyText = formatOutboxStatus(status);
+    const recipientId = isDirect ? msg.userId : undefined;
+    await sendTextMessage(cfg, accountId, msg.conversationId, recipientId, replyText, log);
+    return;
+  }
 
    // 解析消息路由
    const peerId = isDirect ? msg.userId : msg.conversationId;
@@ -146,7 +194,7 @@ if (!config.allowFrom.includes(msg.userId)) {
      },
    });
    
-   log.info(`[mixin] route result: ${route ? "FOUND" : "NULL"} - agentId=${route?.agentId}, sessionKey=${route?.sessionKey}`);
+   log.info(`[mixin] route result: ${route ? "FOUND" : "NULL"} - agentId=${route?.agentId ?? "N/A"}`);
 
    if (!route) {
      log.warn(`[mixin] no agent route for ${msg.userId} (peerId: ${peerId})`);
@@ -217,7 +265,7 @@ if (!config.allowFrom.includes(msg.userId)) {
          if (!replyText) return;
          // 私聊需要 recipient_id，群聊不需要
          const recipientId = isDirect ? msg.userId : undefined;
-         await sendTextMessage(config, msg.conversationId, recipientId, replyText, log);
+         await sendTextMessage(cfg, accountId, msg.conversationId, recipientId, replyText, log);
        },
     },
   });
