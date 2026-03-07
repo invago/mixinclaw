@@ -56,7 +56,7 @@ Go to [Mixin Developers Dashboard](https://developers.mixin.one/dashboard), crea
 
 ## Configuration
 
-Run `openclaw config` to find your config file, then add the channel configuration:
+Edit your `openclaw.json` file manually and add both the channel configuration and the plugin enablement block:
 
 ```json
 {
@@ -75,13 +75,22 @@ Run `openclaw config` to find your config file, then add the channel configurati
         "password": "proxy-pass"
       }
     }
+  },
+  "plugins": {
+    "allow": ["mixin"],
+    "entries": {
+      "mixin": {
+        "enabled": true
+      }
+    }
   }
 }
 ```
 
 Notes:
 
-- The plugin is installed and enabled through `openclaw plugins install`; the `channels.mixin` section configures the channel itself.
+- `channels.mixin` configures the channel itself.
+- `plugins.allow` and `plugins.entries.mixin.enabled` are also required so OpenClaw loads this plugin.
 - This plugin currently uses `allowFrom` as its sender allowlist. Do not assume other generic OpenClaw DM policy fields apply here unless the plugin explicitly supports them.
 - If `proxy.url` already contains credentials, `proxy.username` and `proxy.password` can be omitted.
 

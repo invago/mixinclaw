@@ -11,6 +11,7 @@ MixinClaw 是一个 OpenClaw 频道插件。它运行在 OpenClaw Gateway 同一
 重要说明：
 
 - 插件需要安装在 OpenClaw Gateway 所在的机器上。
+- OpenClaw 配置文件是 `openclaw.json`，需要手动编辑。
 - OpenClaw 配置文件是 JSON5 格式，支持注释和尾逗号。
 - 这里配置的代理只作用于这个插件，不影响其他插件。
 
@@ -56,7 +57,7 @@ openclaw plugins install .
 
 ## 配置
 
-运行 `openclaw config` 找到配置文件，然后添加频道配置：
+手动编辑 `openclaw.json`，同时添加频道配置和插件启用配置：
 
 ```json
 {
@@ -75,13 +76,22 @@ openclaw plugins install .
         "password": "proxy-pass"
       }
     }
+  },
+  "plugins": {
+    "allow": ["mixin"],
+    "entries": {
+      "mixin": {
+        "enabled": true
+      }
+    }
   }
 }
 ```
 
 说明：
 
-- 插件通过 `openclaw plugins install` 安装和启用；`channels.mixin` 负责配置这个频道本身。
+- `channels.mixin` 负责配置这个频道本身。
+- `plugins.allow` 和 `plugins.entries.mixin.enabled` 也需要配置，否则 OpenClaw 不会加载这个插件。
 - 当前插件使用 `allowFrom` 作为发送者白名单，不要直接套用其他 OpenClaw 通用 DM 策略字段，除非插件明确支持。
 - 如果 `proxy.url` 已经包含认证信息，可以不再填写 `proxy.username` 和 `proxy.password`。
 
@@ -163,6 +173,14 @@ openclaw status
         }
       }
     }
+  },
+  "plugins": {
+    "allow": ["mixin"],
+    "entries": {
+      "mixin": {
+        "enabled": true
+      }
+    }
   }
 }
 ```
@@ -173,6 +191,7 @@ openclaw status
 |------|--------|
 | 插件未加载 | 运行 `openclaw plugins list` 和 `openclaw plugins info mixin` |
 | 频道未启动 | 检查 `channels.mixin` 是否存在，凭证是否完整 |
+| 插件未启用 | 检查 `plugins.allow` 和 `plugins.entries.mixin.enabled` |
 | 收不到消息 | 检查 `allowFrom`、触发词和 Blaze 连通性 |
 | 消息发不出去 | 检查代理是否可达、outbox 堆积情况和 `/mixin-outbox` 输出 |
 | 入站消息重复推送 | 检查 Blaze 连通性，并确认 ACK 是否正常发送 |
