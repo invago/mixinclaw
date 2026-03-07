@@ -95,6 +95,22 @@ openclaw plugins install .
 - 当前插件使用 `allowFrom` 作为发送者白名单，不要直接套用其他 OpenClaw 通用 DM 策略字段，除非插件明确支持。
 - 如果 `proxy.url` 已经包含认证信息，可以不再填写 `proxy.username` 和 `proxy.password`。
 
+## 避免跨通道串会话
+
+Mixin 群聊本身会按频道隔离，但私聊会话是否独立，取决于 OpenClaw 的 `session.dmScope` 配置。如果保持默认的 `main`，Mixin 私聊可能会和飞书等其它通道共用同一个主会话。
+
+推荐这样配置：
+
+```json
+{
+  "session": {
+    "dmScope": "per-channel-peer"
+  }
+}
+```
+
+如果你同时运行多个 Mixin 账号，并且希望私聊按“账号 + 频道”进一步隔离，可以改用 `per-account-channel-peer`。
+
 ## 配置参数
 
 | 参数 | 必填 | 默认值 | 说明 |

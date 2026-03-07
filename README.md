@@ -94,6 +94,22 @@ Notes:
 - This plugin currently uses `allowFrom` as its sender allowlist. Do not assume other generic OpenClaw DM policy fields apply here unless the plugin explicitly supports them.
 - If `proxy.url` already contains credentials, `proxy.username` and `proxy.password` can be omitted.
 
+## Avoid Cross-Channel Session Mixing
+
+Mixin group chats already stay isolated by channel, but direct-message sessions follow the OpenClaw `session.dmScope` policy. If you keep the default `main` scope, Mixin direct messages can share the same main session with other channels such as Feishu.
+
+Recommended configuration:
+
+```json
+{
+  "session": {
+    "dmScope": "per-channel-peer"
+  }
+}
+```
+
+Use `per-account-channel-peer` instead if you run multiple Mixin accounts and want direct-message sessions isolated by both channel and account.
+
 ## Configuration Reference
 
 | Parameter | Required | Default | Description |
