@@ -135,8 +135,6 @@ export async function runBlazeLoop(params: {
           return;
         }
 
-        await dispatchMessage(handler, msg);
-
         if (options?.syncAck && msg.message_id) {
           await sendRaw(ws!, {
             id: crypto.randomUUID(),
@@ -147,6 +145,8 @@ export async function runBlazeLoop(params: {
             },
           });
         }
+
+        await dispatchMessage(handler, msg);
       } catch (err) {
         log.error("[mixin] blaze message error", err);
       }
