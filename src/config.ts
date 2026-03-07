@@ -20,8 +20,7 @@ export function getAccountConfig(cfg: OpenClawConfig, accountId?: string): Mixin
   if (accountId && accountId !== "default" && raw.accounts?.[accountId]) {
     accountRaw = raw.accounts[accountId] as Partial<MixinAccountConfig>;
   } else {
-    const { accounts: _accounts, ...rest } = raw as MixinConfig & { accounts?: unknown };
-    accountRaw = rest as Partial<MixinAccountConfig>;
+    accountRaw = raw as MixinConfig as Partial<MixinAccountConfig>;
   }
 
   const result = MixinAccountConfigSchema.safeParse(accountRaw);

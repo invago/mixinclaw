@@ -22,12 +22,35 @@ type SendLog = {
   warn: (msg: string) => void;
 };
 
+export type MixinSupportedMessageCategory =
+  | "PLAIN_TEXT"
+  | "PLAIN_POST"
+  | "APP_BUTTON_GROUP"
+  | "APP_CARD";
+
+export interface MixinButton {
+  label: string;
+  color?: string;
+  action: string;
+}
+
+export interface MixinCard {
+  title: string;
+  description: string;
+  action?: string;
+  actions?: MixinButton[];
+  coverUrl?: string;
+  iconUrl?: string;
+  shareable?: boolean;
+}
+
 interface OutboxEntry {
   jobId: string;
   accountId: string;
   conversationId: string;
   recipientId?: string;
-  text: string;
+  category: MixinSupportedMessageCategory;
+  body: string;
   messageId: string;
   attempts: number;
   nextAttemptAt: number;
@@ -115,8 +138,16 @@ function normalizeErrorMessage(message: string): string {
 }
 
 function normalizeEntry(entry: OutboxEntry): OutboxEntry {
+  const legacyText = "text" in entry && typeof (entry as OutboxEntry & { text?: unknown }).text === "string"
+    ? String((entry as OutboxEntry & { text?: unknown }).text)
+    : "";
+  const category = typeof entry.category === "string" ? entry.category : "PLAIN_TEXT";
+  const body = typeof entry.body === "string" ? entry.body : legacyText;
+
   return {
     ...entry,
+    category,
+    body,
     attempts: typeof entry.attempts === "number" ? entry.attempts : 0,
     nextAttemptAt: typeof entry.nextAttemptAt === "number" ? entry.nextAttemptAt : Date.now(),
     updatedAt: entry.updatedAt ?? entry.createdAt ?? new Date().toISOString(),
@@ -254,14 +285,14 @@ async function attemptSend(entry: OutboxEntry): Promise<void> {
   const messagePayload: {
     conversation_id: string;
     message_id: string;
-    category: "PLAIN_TEXT";
+    category: MixinSupportedMessageCategory;
     data_base64: string;
     recipient_id?: string;
   } = {
     conversation_id: entry.conversationId,
     message_id: entry.messageId,
-    category: "PLAIN_TEXT",
-    data_base64: Buffer.from(entry.text).toString("base64"),
+    category: entry.category,
+    data_base64: Buffer.from(entry.body).toString("base64"),
   };
 
   if (entry.recipientId) {
@@ -384,6 +415,79 @@ export async function sendTextMessage(
   text: string,
   log?: SendLog,
 ): Promise<SendResult> {
+  return sendMixinMessage(cfg, accountId, conversationId, recipientId, "PLAIN_TEXT", text, log);
+}
+
+export async function sendPostMessage(
+  cfg: OpenClawConfig,
+  accountId: string,
+  conversationId: string,
+  recipientId: string | undefined,
+  text: string,
+  log?: SendLog,
+): Promise<SendResult> {
+  return sendMixinMessage(cfg, accountId, conversationId, recipientId, "PLAIN_POST", text, log);
+}
+
+export async function sendButtonGroupMessage(
+  cfg: OpenClawConfig,
+  accountId: string,
+  conversationId: string,
+  recipientId: string | undefined,
+  buttons: MixinButton[],
+  log?: SendLog,
+): Promise<SendResult> {
+  return sendMixinMessage(
+    cfg,
+    accountId,
+    conversationId,
+    recipientId,
+    "APP_BUTTON_GROUP",
+    JSON.stringify(buttons),
+    log,
+  );
+}
+
+export async function sendCardMessage(
+  cfg: OpenClawConfig,
+  accountId: string,
+  conversationId: string,
+  recipientId: string | undefined,
+  card: MixinCard,
+  log?: SendLog,
+): Promise<SendResult> {
+  const config = getAccountConfig(cfg, accountId);
+  const payload = {
+    app_id: config.appId ?? "",
+    title: card.title,
+    description: card.description,
+    action: card.action,
+    actions: card.actions,
+    cover_url: card.coverUrl,
+    icon_url: card.iconUrl,
+    shareable: card.shareable,
+  };
+
+  return sendMixinMessage(
+    cfg,
+    accountId,
+    conversationId,
+    recipientId,
+    "APP_CARD",
+    JSON.stringify(payload),
+    log,
+  );
+}
+
+async function sendMixinMessage(
+  cfg: OpenClawConfig,
+  accountId: string,
+  conversationId: string,
+  recipientId: string | undefined,
+  category: MixinSupportedMessageCategory,
+  body: string,
+  log?: SendLog,
+): Promise<SendResult> {
   updateRuntime(cfg, log);
   await startSendWorker(cfg, log);
 
@@ -393,7 +497,8 @@ export async function sendTextMessage(
     accountId,
     conversationId,
     recipientId,
-    text,
+    category,
+    body,
     messageId: crypto.randomUUID(),
     attempts: 0,
     nextAttemptAt: Date.now(),
@@ -407,7 +512,7 @@ export async function sendTextMessage(
   wakeWorker();
 
   state.log.info(
-    `[mixin] outbox enqueued: jobId=${entry.jobId}, messageId=${entry.messageId}, accountId=${accountId}, conversation=${conversationId}`,
+    `[mixin] outbox enqueued: jobId=${entry.jobId}, messageId=${entry.messageId}, category=${category}, accountId=${accountId}, conversation=${conversationId}`,
   );
 
   return { ok: true, messageId: entry.messageId };
@@ -427,6 +532,7 @@ export async function acknowledgeMessage(
     await client.message.sendAcknowledgement(
       { message_id: messageId, status: "READ" },
     );
-  } catch {
+  } catch (err) {
+    void err;
   }
 }

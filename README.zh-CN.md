@@ -163,6 +163,65 @@ openclaw status
 - 插件重启后，未完成的消息仍会继续补发。
 - 入站 Blaze 消息会在分发前尽快 ACK，尽量减少 Mixin 的重复推送。
 
+## 显式回复模板
+
+如果你希望 Mixin 回复严格按指定形式发送，而不是依赖自动判断，可以让 agent 只输出一个 fenced code block 模板。
+
+文本：
+
+```text
+```mixin-text
+简短纯文本回复
+```
+```
+
+长文：
+
+```text
+```mixin-post
+# 发布说明
+
+- 条目 1
+- 条目 2
+```
+```
+
+按钮组：
+
+```text
+```mixin-buttons
+{
+  "intro": "请选择操作",
+  "buttons": [
+    { "label": "打开文档", "action": "https://docs.openclaw.ai" },
+    { "label": "打开 Mixin", "action": "https://developers.mixin.one" }
+  ]
+}
+```
+```
+
+卡片：
+
+```text
+```mixin-card
+{
+  "title": "OpenClaw 文档",
+  "description": "打开官方文档站点。",
+  "action": "https://docs.openclaw.ai",
+  "coverUrl": "https://example.com/cover.png",
+  "shareable": true
+}
+```
+```
+
+规则：
+
+- 显式模板优先级高于自动识别。
+- 回复里只要出现表格或 fenced code block，默认就会走 `mixin-post` 长文。
+- `mixin-buttons` 和 `mixin-card` 只接受 JSON。
+- 按钮和卡片链接必须使用 `http://` 或 `https://`。
+- Mixin 客户端可能要求目标域名已加入机器人应用的 `Resource Patterns` 白名单。
+
 ## 多账号示例
 
 ```json

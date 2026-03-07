@@ -96,7 +96,7 @@ export function decryptMessageData(
     
     const decipherKey = crypto.createDecipheriv('aes-256-cbc', sharedSecret, sessionIv);
     // Mixin SDK 这里加了 padding 处理。如果后续失败，尝试 decipherKey.setAutoPadding(false);
-    let rawMessageKey = Buffer.concat([decipherKey.update(encryptedKey), decipherKey.final()]);
+    const rawMessageKey = Buffer.concat([decipherKey.update(encryptedKey), decipherKey.final()]);
     
     // 取前 16 字节！
     const messageKey = rawMessageKey.slice(0, 16);

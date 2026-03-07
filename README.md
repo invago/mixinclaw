@@ -162,6 +162,65 @@ Plugin-specific command:
 - Pending messages survive plugin restarts.
 - Inbound Blaze messages are acknowledged before dispatch so Mixin receives a read receipt as early as possible.
 
+## Explicit Reply Templates
+
+When you want deterministic Mixin output instead of heuristic auto-selection, have the agent reply with exactly one fenced template block.
+
+Text:
+
+```text
+```mixin-text
+Short plain reply.
+```
+```
+
+Post:
+
+```text
+```mixin-post
+# Release Notes
+
+- Item 1
+- Item 2
+```
+```
+
+Buttons:
+
+```text
+```mixin-buttons
+{
+  "intro": "Choose an action",
+  "buttons": [
+    { "label": "Open Docs", "action": "https://docs.openclaw.ai" },
+    { "label": "Open Mixin", "action": "https://developers.mixin.one" }
+  ]
+}
+```
+```
+
+Card:
+
+```text
+```mixin-card
+{
+  "title": "OpenClaw Docs",
+  "description": "Open the official documentation site.",
+  "action": "https://docs.openclaw.ai",
+  "coverUrl": "https://example.com/cover.png",
+  "shareable": true
+}
+```
+```
+
+Rules:
+
+- Explicit templates take priority over automatic detection.
+- Replies containing tables or fenced code blocks are sent as `mixin-post` by default.
+- `mixin-buttons` and `mixin-card` accept JSON only.
+- Button and card links must use `http://` or `https://`.
+- Mixin clients may require your target domains to be present in the bot app's `Resource Patterns` allowlist.
+
 ## Multi-Account Example
 
 ```json

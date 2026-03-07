@@ -1,10 +1,17 @@
 import type { OpenClawConfig } from "openclaw/plugin-sdk";
 import { getMixinRuntime } from "./runtime.js";
-import { getOutboxStatus, sendTextMessage } from "./send-service.js";
+import {
+  getOutboxStatus,
+  sendButtonGroupMessage,
+  sendCardMessage,
+  sendPostMessage,
+  sendTextMessage,
+} from "./send-service.js";
 import { getAccountConfig } from "./config.js";
 import type { MixinAccountConfig } from "./config-schema.js";
 
 import { decryptMixinMessage } from "./crypto.js";
+import { buildMixinReplyPlan } from "./reply-format.js";
 
 export interface MixinInboundMessage {
   conversationId: string;
@@ -91,6 +98,42 @@ function formatOutboxStatus(status: Awaited<ReturnType<typeof getOutboxStatus>>)
   }
 
   return lines.join("\n");
+}
+
+async function deliverMixinReply(params: {
+  cfg: OpenClawConfig;
+  accountId: string;
+  conversationId: string;
+  recipientId?: string;
+  text: string;
+  log: { info: (m: string) => void; warn: (m: string) => void; error: (m: string, e?: unknown) => void };
+}): Promise<void> {
+  const { cfg, accountId, conversationId, recipientId, text, log } = params;
+  const plan = buildMixinReplyPlan(text);
+
+  if (!plan) {
+    return;
+  }
+
+  if (plan.kind === "text") {
+    await sendTextMessage(cfg, accountId, conversationId, recipientId, plan.text, log);
+    return;
+  }
+
+  if (plan.kind === "post") {
+    await sendPostMessage(cfg, accountId, conversationId, recipientId, plan.text, log);
+    return;
+  }
+
+  if (plan.kind === "buttons") {
+    if (plan.intro) {
+      await sendTextMessage(cfg, accountId, conversationId, recipientId, plan.intro, log);
+    }
+    await sendButtonGroupMessage(cfg, accountId, conversationId, recipientId, plan.buttons, log);
+    return;
+  }
+
+  await sendCardMessage(cfg, accountId, conversationId, recipientId, plan.card, log);
 }
 
 export async function handleMixinMessage(params: {
@@ -263,9 +306,15 @@ if (!config.allowFrom.includes(msg.userId)) {
        deliver: async (payload) => {
          const replyText = payload.text ?? "";
          if (!replyText) return;
-         // 私聊需要 recipient_id，群聊不需要
          const recipientId = isDirect ? msg.userId : undefined;
-         await sendTextMessage(cfg, accountId, msg.conversationId, recipientId, replyText, log);
+         await deliverMixinReply({
+           cfg,
+           accountId,
+           conversationId: msg.conversationId,
+           recipientId,
+           text: replyText,
+           log,
+         });
        },
     },
   });
