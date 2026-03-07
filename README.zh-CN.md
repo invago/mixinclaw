@@ -23,6 +23,8 @@ MixinClaw 是一个 OpenClaw 频道插件。它运行在 OpenClaw Gateway 同一
 openclaw plugins install @invago/mixinclaw
 ```
 
+`@invago/mixinclaw` 是发布后的安装标识，包内的运行时/插件名称仍然是 `mixin`。
+
 安装后可用以下命令确认：
 
 ```bash

@@ -22,6 +22,8 @@ Use the OpenClaw plugin installer:
 openclaw plugins install @invago/mixinclaw
 ```
 
+`@invago/mixinclaw` is the published install identifier. The package metadata still uses the runtime/plugin name `mixin`.
+
 Then confirm the plugin is installed:
 
 ```bash
