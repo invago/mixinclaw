@@ -4,28 +4,48 @@
 
 **[English Documentation](README.md)**
 
-## 快速开始
+## 概览
 
-### 1. 安装
+MixinClaw 是一个 OpenClaw 频道插件。它运行在 OpenClaw Gateway 同一进程中，使用 Mixin Blaze WebSocket 接收消息，并通过 Mixin HTTP API 发送消息。
 
-将插件克隆到 OpenClaw 扩展目录：
+重要说明：
+
+- 插件需要安装在 OpenClaw Gateway 所在的机器上。
+- OpenClaw 配置文件是 JSON5 格式，支持注释和尾逗号。
+- 这里配置的代理只作用于这个插件，不影响其他插件。
+
+## 推荐安装方式
+
+优先使用 OpenClaw 官方插件安装命令：
 
 ```bash
-# Linux/Mac
-git clone https://github.com/invago/mixinclaw.git /usr/lib/node_modules/openclaw/extensions/mixin
-
-# Windows PowerShell
-git clone https://github.com/invago/mixinclaw.git "$env:APPDATA\npm\node_modules\openclaw\extensions\mixin"
+openclaw plugins install @invago/mixinclaw
 ```
 
-安装依赖：
+安装后可用以下命令确认：
 
 ```bash
-cd /usr/lib/node_modules/openclaw/extensions/mixin
+openclaw plugins list
+openclaw plugins info mixin
+```
+
+## 本地开发安装
+
+如果你是在本地开发，先克隆仓库并安装依赖：
+
+```bash
+git clone https://github.com/invago/mixinclaw.git
+cd mixinclaw
 npm install
 ```
 
-### 2. 创建 Mixin Bot
+然后通过本地路径安装到 OpenClaw：
+
+```bash
+openclaw plugins install .
+```
+
+## 创建 Mixin Bot
 
 前往 [Mixin Developers Dashboard](https://developers.mixin.one/dashboard)，创建机器人并记录以下凭证：
 
@@ -34,14 +54,15 @@ npm install
 - `serverPublicKey`
 - `sessionPrivateKey`
 
-### 3. 配置
+## 配置
 
-运行 `openclaw config` 找到配置文件，然后添加：
+运行 `openclaw config` 找到配置文件，然后添加频道配置：
 
 ```json
 {
   "channels": {
     "mixin": {
+      "enabled": true,
       "appId": "你的 App ID",
       "sessionId": "你的 Session ID",
       "serverPublicKey": "服务端公钥 Base64",
@@ -54,41 +75,21 @@ npm install
         "password": "proxy-pass"
       }
     }
-  },
-  "plugins": {
-    "allow": ["mixin"],
-    "entries": {
-      "mixin": { "enabled": true }
-    }
   }
 }
 ```
 
 说明：
 
-- `mixin` 需要同时出现在 `plugins.allow` 和 `plugins.entries` 中。
-- `proxy` 是可选项。
-- 代理只作用于这个插件，不影响 OpenClaw 其他插件。
-- Mixin 的 HTTP 请求和 Blaze WebSocket 都会走同一个代理。
-- 如果 `proxy.url` 里已经包含认证信息，可以不再填写 `proxy.username` 和 `proxy.password`。
-
-### 4. 启动
-
-```bash
-openclaw status
-```
-
-日志中看到 `[mixin] connected to Mixin Blaze` 表示连接成功。
-
-### 5. 测试
-
-- 私聊：`/status` 或 `你好`
-- 群聊：`@Bot 你的问题`，并带上 `?` 或 `help` 等触发词
+- 插件通过 `openclaw plugins install` 安装和启用；`channels.mixin` 负责配置这个频道本身。
+- 当前插件使用 `allowFrom` 作为发送者白名单，不要直接套用其他 OpenClaw 通用 DM 策略字段，除非插件明确支持。
+- 如果 `proxy.url` 已经包含认证信息，可以不再填写 `proxy.username` 和 `proxy.password`。
 
 ## 配置参数
 
 | 参数 | 必填 | 默认值 | 说明 |
 |------|------|--------|------|
+| `enabled` | 否 | `true` | 是否启用该频道账号 |
 | `appId` | 是 | - | Mixin 应用 UUID |
 | `sessionId` | 是 | - | 会话 UUID |
 | `serverPublicKey` | 是 | - | 服务端公钥 Base64 |
@@ -101,26 +102,38 @@ openclaw status
 | `proxy.username` | 否 | - | 代理用户名 |
 | `proxy.password` | 否 | - | 代理密码 |
 
-## 功能
+## 代理
 
-- 使用 Mixin Blaze WebSocket 接收消息
-- 使用 HTTP 发送消息
-- 发送消息持久化 outbox，失败自动重试直到成功
-- 支持私聊和群聊
-- 消息去重
-- 基于白名单的访问控制
-- 支持多账号
-- 支持 HTTP 和 WebSocket 全量走插件级认证代理
+- Mixin 的 HTTP 请求和 Blaze WebSocket 都会走同一个代理。
+- 常见代理地址格式包括 `http://...`、`https://...`、`socks5://...`。
+- 代理软件或代理服务器需要你自己提供，插件只负责使用代理。
 
-## 重试机制
+## 使用方式
+
+- 私聊：`/status` 或 `你好`
+- 群聊：`@Bot 你的问题`，并带上 `?` 或 `help` 等触发词
+
+## 运维
+
+常用 OpenClaw 命令：
+
+```bash
+openclaw plugins list
+openclaw plugins info mixin
+openclaw channels status --probe
+openclaw status
+```
+
+插件内诊断命令：
+
+- 发送 `/mixin-outbox` 可查看当前待发队列数量、下次重试时间和最近错误。
+
+## 投递与重试行为
 
 - 回复消息会先写入本地 outbox，再由后台 worker 发送。
 - 发送失败会自动重试，直到发送成功。
 - 插件重启后，未完成的消息仍会继续补发。
-
-## 运维命令
-
-- 发送 `/mixin-outbox` 可查看当前待发队列数量、下次重试时间和最近错误。
+- 入站 Blaze 消息会在分发前尽快 ACK，尽量减少 Mixin 的重复推送。
 
 ## 多账号示例
 
@@ -154,6 +167,16 @@ openclaw status
 }
 ```
 
+## 故障排查
+
+| 问题 | 检查项 |
+|------|--------|
+| 插件未加载 | 运行 `openclaw plugins list` 和 `openclaw plugins info mixin` |
+| 频道未启动 | 检查 `channels.mixin` 是否存在，凭证是否完整 |
+| 收不到消息 | 检查 `allowFrom`、触发词和 Blaze 连通性 |
+| 消息发不出去 | 检查代理是否可达、outbox 堆积情况和 `/mixin-outbox` 输出 |
+| 入站消息重复推送 | 检查 Blaze 连通性，并确认 ACK 是否正常发送 |
+
 ## 安全提示
 
 - 妥善保管 `sessionPrivateKey`
@@ -163,5 +186,9 @@ openclaw status
 ## 相关链接
 
 - [OpenClaw 文档](https://openclaw.ai)
+- [OpenClaw 插件文档](https://docs.openclaw.ai/tools/plugin)
+- [OpenClaw 插件 CLI](https://docs.openclaw.ai/cli/plugins)
+- [OpenClaw 配置说明](https://docs.openclaw.ai/gateway/configuration)
+- [OpenClaw 配置参考](https://docs.openclaw.ai/gateway/configuration-reference)
 - [Mixin Developers Dashboard](https://developers.mixin.one/dashboard)
 - [Mixin Bot API 文档](https://developers.mixin.one/docs/bot-api)

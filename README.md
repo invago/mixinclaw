@@ -4,28 +4,48 @@ Connect [Mixin Messenger](https://mixin.one/messenger) to [OpenClaw](https://ope
 
 **[Chinese Documentation](README.zh-CN.md)**
 
-## Quick Start
+## Overview
 
-### 1. Install
+MixinClaw is an OpenClaw channel plugin. It runs in the same process as the OpenClaw Gateway, receives inbound messages from Mixin Blaze WebSocket, and delivers outbound messages over the Mixin HTTP API.
 
-Clone this plugin into the OpenClaw extensions directory:
+Important:
+
+- Install the plugin on the same machine where the OpenClaw Gateway runs.
+- OpenClaw config files use JSON5, so comments and trailing commas are allowed.
+- The proxy configured by this plugin only affects this plugin.
+
+## Recommended Install
+
+Use the OpenClaw plugin installer:
 
 ```bash
-# Linux/Mac
-git clone https://github.com/invago/mixinclaw.git /usr/lib/node_modules/openclaw/extensions/mixin
-
-# Windows PowerShell
-git clone https://github.com/invago/mixinclaw.git "$env:APPDATA\npm\node_modules\openclaw\extensions\mixin"
+openclaw plugins install @invago/mixinclaw
 ```
 
-Install dependencies:
+Then confirm the plugin is installed:
 
 ```bash
-cd /usr/lib/node_modules/openclaw/extensions/mixin
+openclaw plugins list
+openclaw plugins info mixin
+```
+
+## Local Development Install
+
+If you are developing locally, clone the repository and install dependencies:
+
+```bash
+git clone https://github.com/invago/mixinclaw.git
+cd mixinclaw
 npm install
 ```
 
-### 2. Create a Mixin Bot
+Then install it into OpenClaw from the local path:
+
+```bash
+openclaw plugins install .
+```
+
+## Create a Mixin Bot
 
 Go to [Mixin Developers Dashboard](https://developers.mixin.one/dashboard), create a bot, and collect:
 
@@ -34,14 +54,15 @@ Go to [Mixin Developers Dashboard](https://developers.mixin.one/dashboard), crea
 - `serverPublicKey`
 - `sessionPrivateKey`
 
-### 3. Configure
+## Configuration
 
-Run `openclaw config` to find your config file, then add:
+Run `openclaw config` to find your config file, then add the channel configuration:
 
 ```json
 {
   "channels": {
     "mixin": {
+      "enabled": true,
       "appId": "YOUR_APP_ID",
       "sessionId": "YOUR_SESSION_ID",
       "serverPublicKey": "YOUR_SERVER_PUBLIC_KEY_BASE64",
@@ -54,41 +75,21 @@ Run `openclaw config` to find your config file, then add:
         "password": "proxy-pass"
       }
     }
-  },
-  "plugins": {
-    "allow": ["mixin"],
-    "entries": {
-      "mixin": { "enabled": true }
-    }
   }
 }
 ```
 
 Notes:
 
-- Add `mixin` to both `plugins.allow` and `plugins.entries`.
-- `proxy` is optional.
-- The proxy applies only to this plugin.
-- Both Mixin HTTP requests and Blaze WebSocket traffic use the same proxy.
-- If credentials are already embedded in `proxy.url`, `proxy.username` and `proxy.password` can be omitted.
+- The plugin is installed and enabled through `openclaw plugins install`; the `channels.mixin` section configures the channel itself.
+- This plugin currently uses `allowFrom` as its sender allowlist. Do not assume other generic OpenClaw DM policy fields apply here unless the plugin explicitly supports them.
+- If `proxy.url` already contains credentials, `proxy.username` and `proxy.password` can be omitted.
 
-### 4. Start
-
-```bash
-openclaw status
-```
-
-Check logs for `[mixin] connected to Mixin Blaze`.
-
-### 5. Test
-
-- Direct message: `/status` or `Hello`
-- Group message: `@Bot your question` with trigger words such as `?` or `help`
-
-## Configuration
+## Configuration Reference
 
 | Parameter | Required | Default | Description |
 |-----------|----------|---------|-------------|
+| `enabled` | No | `true` | Enable or disable this channel account |
 | `appId` | Yes | - | Mixin App UUID |
 | `sessionId` | Yes | - | Session UUID |
 | `serverPublicKey` | Yes | - | Server Public Key (Base64) |
@@ -101,25 +102,38 @@ Check logs for `[mixin] connected to Mixin Blaze`.
 | `proxy.username` | No | - | Proxy username |
 | `proxy.password` | No | - | Proxy password |
 
-## Features
+## Proxy
 
-- Mixin Blaze WebSocket inbound messaging
-- HTTP outbound messaging with persistent outbox retry
-- Direct and group chat support
-- Message deduplication
-- Allowlist-based access control
-- Multi-account support
-- Per-plugin authenticated proxy support for both HTTP and WebSocket
+- Both Mixin HTTP requests and Blaze WebSocket traffic use the same proxy.
+- Supported proxy URL styles depend on the underlying proxy agent stack; typical values are `http://...`, `https://...`, and `socks5://...`.
+- You must provide your own proxy software or proxy server. The plugin only consumes a proxy, it does not create one.
 
-## Retry Behavior
+## Usage
+
+- Direct message: `/status` or `Hello`
+- Group message: `@Bot your question` with trigger words such as `?` or `help`
+
+## Operations
+
+Useful OpenClaw commands:
+
+```bash
+openclaw plugins list
+openclaw plugins info mixin
+openclaw channels status --probe
+openclaw status
+```
+
+Plugin-specific command:
+
+- Send `/mixin-outbox` to inspect the current pending queue size, next retry time, and latest error.
+
+## Delivery and Retry Behavior
 
 - Outbound messages are persisted to a local outbox before send attempts.
 - Failed sends are retried automatically until they succeed.
 - Pending messages survive plugin restarts.
-
-## Operations
-
-- Send `/mixin-outbox` to inspect current pending queue size, next retry time, and latest error.
+- Inbound Blaze messages are acknowledged before dispatch so Mixin receives a read receipt as early as possible.
 
 ## Multi-Account Example
 
@@ -153,6 +167,16 @@ Check logs for `[mixin] connected to Mixin Blaze`.
 }
 ```
 
+## Troubleshooting
+
+| Problem | What to check |
+|---------|---------------|
+| Plugin not loaded | Run `openclaw plugins list` and `openclaw plugins info mixin` |
+| Channel not starting | Verify `channels.mixin` exists and credentials are complete |
+| Not receiving messages | Check `allowFrom`, trigger words, and Blaze connectivity |
+| Messages not sending | Check proxy reachability, outbox backlog, and `/mixin-outbox` output |
+| Repeated inbound pushes | Check Blaze connectivity and confirm ACK logs/behavior |
+
 ## Security Notes
 
 - Keep `sessionPrivateKey` private.
@@ -162,5 +186,9 @@ Check logs for `[mixin] connected to Mixin Blaze`.
 ## Links
 
 - [OpenClaw Documentation](https://openclaw.ai)
+- [OpenClaw Plugins](https://docs.openclaw.ai/tools/plugin)
+- [OpenClaw Plugin CLI](https://docs.openclaw.ai/cli/plugins)
+- [OpenClaw Configuration](https://docs.openclaw.ai/gateway/configuration)
+- [OpenClaw Configuration Reference](https://docs.openclaw.ai/gateway/configuration-reference)
 - [Mixin Developers Dashboard](https://developers.mixin.one/dashboard)
 - [Mixin Bot API Documentation](https://developers.mixin.one/docs/bot-api)
