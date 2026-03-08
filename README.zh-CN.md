@@ -155,6 +155,7 @@ openclaw status
 插件内诊断命令：
 
 - 发送 `/mixin-outbox` 可查看当前待发队列数量、下次重试时间和最近错误。
+- 发送 `/mixin-outbox purge-invalid` 可删除历史遗留的 `APP_CARD` / `APP_BUTTON_GROUP` 永久无效重试项。
 
 ## 投递与重试行为
 

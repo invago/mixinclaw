@@ -71,6 +71,11 @@ export interface OutboxStatus {
   latestError?: string;
 }
 
+export interface OutboxPurgeResult {
+  removed: number;
+  removedJobIds: string[];
+}
+
 export interface SendResult {
   ok: boolean;
   messageId?: string;
@@ -135,6 +140,15 @@ function normalizeErrorMessage(message: string): string {
     return message;
   }
   return `${message.slice(0, MAX_ERROR_LENGTH)}...`;
+}
+
+function isPermanentInvalidEntry(entry: OutboxEntry): boolean {
+  if (entry.category !== "APP_CARD" && entry.category !== "APP_BUTTON_GROUP") {
+    return false;
+  }
+
+  const error = (entry.lastError ?? "").toLowerCase();
+  return error.includes("code: 10002") && error.includes("invalid field");
 }
 
 function normalizeEntry(entry: OutboxEntry): OutboxEntry {
@@ -407,6 +421,24 @@ export async function getOutboxStatus(): Promise<OutboxStatus> {
   };
 }
 
+export async function purgePermanentInvalidOutboxEntries(): Promise<OutboxPurgeResult> {
+  await ensureOutboxLoaded();
+
+  const removedEntries = state.entries.filter((entry) => isPermanentInvalidEntry(entry));
+  if (removedEntries.length === 0) {
+    return { removed: 0, removedJobIds: [] };
+  }
+
+  const removedJobIds = removedEntries.map((entry) => entry.jobId);
+  state.entries = state.entries.filter((entry) => !isPermanentInvalidEntry(entry));
+  await persistEntries();
+
+  return {
+    removed: removedEntries.length,
+    removedJobIds,
+  };
+}
+
 export async function sendTextMessage(
   cfg: OpenClawConfig,
   accountId: string,
@@ -437,15 +469,8 @@ export async function sendButtonGroupMessage(
   buttons: MixinButton[],
   log?: SendLog,
 ): Promise<SendResult> {
-  return sendMixinMessage(
-    cfg,
-    accountId,
-    conversationId,
-    recipientId,
-    "APP_BUTTON_GROUP",
-    JSON.stringify(buttons),
-    log,
-  );
+  const lines = buttons.map((button, index) => `${index + 1}. ${button.label}: ${button.action}`);
+  return sendPostMessage(cfg, accountId, conversationId, recipientId, lines.join("\n"), log);
 }
 
 export async function sendCardMessage(
@@ -456,27 +481,17 @@ export async function sendCardMessage(
   card: MixinCard,
   log?: SendLog,
 ): Promise<SendResult> {
-  const config = getAccountConfig(cfg, accountId);
-  const payload = {
-    app_id: config.appId ?? "",
-    title: card.title,
-    description: card.description,
-    action: card.action,
-    actions: card.actions,
-    cover_url: card.coverUrl,
-    icon_url: card.iconUrl,
-    shareable: card.shareable,
-  };
+  const lines = [card.title, "", card.description];
 
-  return sendMixinMessage(
-    cfg,
-    accountId,
-    conversationId,
-    recipientId,
-    "APP_CARD",
-    JSON.stringify(payload),
-    log,
-  );
+  if (card.action) {
+    lines.push("", `Open: ${card.action}`);
+  }
+
+  if (card.actions && card.actions.length > 0) {
+    lines.push("", ...card.actions.map((button, index) => `${index + 1}. ${button.label}: ${button.action}`));
+  }
+
+  return sendPostMessage(cfg, accountId, conversationId, recipientId, lines.join("\n"), log);
 }
 
 async function sendMixinMessage(

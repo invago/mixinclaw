@@ -154,6 +154,7 @@ openclaw status
 Plugin-specific command:
 
 - Send `/mixin-outbox` to inspect the current pending queue size, next retry time, and latest error.
+- Send `/mixin-outbox purge-invalid` to remove old `APP_CARD` / `APP_BUTTON_GROUP` entries that are stuck on permanent invalid-field errors.
 
 ## Delivery and Retry Behavior
 

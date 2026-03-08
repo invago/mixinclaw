@@ -2,6 +2,7 @@ import type { OpenClawConfig } from "openclaw/plugin-sdk";
 import { getMixinRuntime } from "./runtime.js";
 import {
   getOutboxStatus,
+  purgePermanentInvalidOutboxEntries,
   sendButtonGroupMessage,
   sendCardMessage,
   sendPostMessage,
@@ -79,7 +80,11 @@ function shouldPassGroupFilter(config: MixinAccountConfig, text: string): boolea
 }
 
 function isOutboxCommand(text: string): boolean {
-  return text.trim().toLowerCase() === "/mixin-outbox";
+  return text.trim().toLowerCase().startsWith("/mixin-outbox");
+}
+
+function isOutboxPurgeInvalidCommand(text: string): boolean {
+  return text.trim().toLowerCase() === "/mixin-outbox purge-invalid";
 }
 
 function formatOutboxStatus(status: Awaited<ReturnType<typeof getOutboxStatus>>): string {
@@ -216,6 +221,16 @@ if (!config.allowFrom.includes(msg.userId)) {
   markProcessed(msg.messageId);
 
   if (isOutboxCommand(text)) {
+    if (isOutboxPurgeInvalidCommand(text)) {
+      const result = await purgePermanentInvalidOutboxEntries();
+      const recipientId = isDirect ? msg.userId : undefined;
+      const replyText = result.removed > 0
+        ? `Removed ${result.removed} invalid outbox entr${result.removed === 1 ? "y" : "ies"}.\n${result.removedJobIds.map((jobId) => `- ${jobId}`).join("\n")}`
+        : "No invalid outbox entries found.";
+      await sendTextMessage(cfg, accountId, msg.conversationId, recipientId, replyText, log);
+      return;
+    }
+
     const status = await getOutboxStatus();
     const replyText = formatOutboxStatus(status);
     const recipientId = isDirect ? msg.userId : undefined;
