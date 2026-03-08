@@ -19,10 +19,10 @@ Important:
 Use the OpenClaw plugin installer:
 
 ```bash
-openclaw plugins install @invago/mixinclaw
+openclaw plugins install @invago/mixin
 ```
 
-`@invago/mixinclaw` is the published npm package name. The OpenClaw runtime/plugin name remains `mixin`.
+`@invago/mixin` is the published npm package name. The OpenClaw runtime/plugin name remains `mixin`.
 
 Then confirm the plugin is installed:
 

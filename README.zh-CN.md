@@ -20,10 +20,10 @@ MixinClaw 是一个 OpenClaw 频道插件。它运行在 OpenClaw Gateway 同一
 优先使用 OpenClaw 官方插件安装命令：
 
 ```bash
-openclaw plugins install @invago/mixinclaw
+openclaw plugins install @invago/mixin
 ```
 
-`@invago/mixinclaw` 是发布后的 npm 包名，OpenClaw 内部的运行时/插件名称仍然是 `mixin`。
+`@invago/mixin` 是发布后的 npm 包名，OpenClaw 内部的运行时/插件名称仍然是 `mixin`。
 
 安装后可用以下命令确认：
 
