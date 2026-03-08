@@ -22,7 +22,7 @@ Use the OpenClaw plugin installer:
 openclaw plugins install @invago/mixinclaw
 ```
 
-`@invago/mixinclaw` is the published install identifier. The package metadata still uses the runtime/plugin name `mixin`.
+`@invago/mixinclaw` is the published npm package name. The OpenClaw runtime/plugin name remains `mixin`.
 
 Then confirm the plugin is installed:
 
