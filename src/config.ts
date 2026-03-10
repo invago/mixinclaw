@@ -41,6 +41,7 @@ export function resolveAccount(cfg: OpenClawConfig, accountId?: string) {
     sessionId: config.sessionId,
     serverPublicKey: config.serverPublicKey,
     sessionPrivateKey: config.sessionPrivateKey,
+    dmPolicy: config.dmPolicy,
     allowFrom: config.allowFrom,
     requireMentionInGroup: config.requireMentionInGroup,
     debug: config.debug,

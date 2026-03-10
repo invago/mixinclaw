@@ -70,6 +70,7 @@ openclaw plugins install .
       "sessionId": "你的 Session ID",
       "serverPublicKey": "服务端公钥 Base64",
       "sessionPrivateKey": "会话私钥 Base64",
+      "dmPolicy": "pairing",
       "allowFrom": ["授权用户 UUID"],
       "proxy": {
         "enabled": true,
@@ -94,8 +95,31 @@ openclaw plugins install .
 
 - `channels.mixin` 负责配置这个频道本身。
 - `plugins.allow` 和 `plugins.entries.mixin.enabled` 也需要配置，否则 OpenClaw 不会加载这个插件。
-- 当前插件使用 `allowFrom` 作为发送者白名单，不要直接套用其他 OpenClaw 通用 DM 策略字段，除非插件明确支持。
+- Mixin 现在支持 OpenClaw 官方的私聊 `dmPolicy`，推荐使用 `dmPolicy: "pairing"`。
+- `allowFrom` 仍然保留，适合预授权用户或人工补充白名单；配对批准结果会写入 OpenClaw 的 pairing allowlist store。
 - 如果 `proxy.url` 已经包含认证信息，可以不再填写 `proxy.username` 和 `proxy.password`。
+
+## 配对模式
+
+私聊推荐配置：
+
+```json
+{
+  "channels": {
+    "mixin": {
+      "dmPolicy": "pairing"
+    }
+  }
+}
+```
+
+行为说明：
+
+- 未授权的私聊用户会先收到一个 8 位配对码。
+- 管理员使用 `openclaw pairing approve mixin <code>` 完成批准。
+- 使用 `openclaw pairing list mixin` 查看待批准的配对请求。
+- 批准后，该用户会被加入 OpenClaw 的 `mixin` pairing allowlist store。
+- `allowFrom` 仍然生效，可以和 pairing 一起使用。
 
 ## 避免跨通道串会话
 
@@ -122,6 +146,7 @@ Mixin 群聊本身会按频道隔离，但私聊会话是否独立，取决于 O
 | `sessionId` | 是 | - | 会话 UUID |
 | `serverPublicKey` | 是 | - | 服务端公钥 Base64 |
 | `sessionPrivateKey` | 是 | - | 会话私钥 Ed25519 Base64 |
+| `dmPolicy` | 否 | `pairing` | 私聊策略：`pairing`、`allowlist`、`open`、`disabled` |
 | `allowFrom` | 否 | `[]` | 授权用户 UUID 白名单 |
 | `requireMentionInGroup` | 否 | `true` | 群聊是否要求触发词 |
 | `debug` | 否 | `false` | 调试模式 |
@@ -236,6 +261,7 @@ openclaw status
           "sessionId": "...",
           "serverPublicKey": "...",
           "sessionPrivateKey": "...",
+          "dmPolicy": "pairing",
           "allowFrom": ["..."]
         },
         "bot2": {
@@ -270,14 +296,14 @@ openclaw status
 | 插件未加载 | 运行 `openclaw plugins list` 和 `openclaw plugins info mixin` |
 | 频道未启动 | 检查 `channels.mixin` 是否存在，凭证是否完整 |
 | 插件未启用 | 检查 `plugins.allow` 和 `plugins.entries.mixin.enabled` |
-| 收不到消息 | 检查 `allowFrom`、触发词和 Blaze 连通性 |
+| 收不到消息 | 检查 pairing 是否已批准或 `allowFrom` 是否包含该用户，同时检查触发词和 Blaze 连通性 |
 | 消息发不出去 | 检查代理是否可达、outbox 堆积情况和 `/mixin-outbox` 输出 |
 | 入站消息重复推送 | 检查 Blaze 连通性，并确认 ACK 是否正常发送 |
 
 ## 安全提示
 
 - 妥善保管 `sessionPrivateKey`
-- 生产环境务必配置 `allowFrom`
+- 生产环境建议使用 `dmPolicy: "pairing"` 或严格的 `allowFrom`
 - outbox 文件会保存待发送消息正文，不要暴露 `data/` 目录
 
 ## 相关链接

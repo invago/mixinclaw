@@ -1,3 +1,4 @@
+import { DmPolicySchema } from "openclaw/plugin-sdk";
 import { z } from "zod";
 
 export const MixinProxyConfigSchema = z.object({
@@ -28,6 +29,7 @@ export const MixinAccountConfigSchema = z.object({
   sessionId: z.string().optional(),
   serverPublicKey: z.string().optional(),
   sessionPrivateKey: z.string().optional(),
+  dmPolicy: DmPolicySchema.optional().default("pairing"),
   allowFrom: z.array(z.string()).optional().default([]),
   requireMentionInGroup: z.boolean().optional().default(true),
   debug: z.boolean().optional().default(false),

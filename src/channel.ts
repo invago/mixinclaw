@@ -1,4 +1,4 @@
-import { buildChannelConfigSchema } from "openclaw/plugin-sdk";
+import { buildChannelConfigSchema, formatPairingApproveHint } from "openclaw/plugin-sdk";
 import type { ChannelGatewayContext, OpenClawConfig } from "openclaw/plugin-sdk";
 import { runBlazeLoop } from "./blaze-service.js";
 import { MixinConfigSchema } from "./config-schema.js";
@@ -53,18 +53,27 @@ export const mixinPlugin = {
     defaultAccountId: () => "default",
   },
 
+  pairing: {
+    idLabel: "Mixin UUID",
+    normalizeAllowEntry: (entry: string) => entry.trim().toLowerCase(),
+  },
+
   security: {
     resolveDmPolicy: ({ account, accountId }: { account: ResolvedMixinAccount; accountId?: string | null }) => {
       const allowFrom = account.config.allowFrom ?? [];
       const basePath = accountId && accountId !== "default" ? `.accounts.${accountId}` : "";
+      const policy = account.config.dmPolicy ?? "pairing";
 
       return {
-        policy: "allowlist" as const,
+        policy,
         allowFrom,
+        policyPath: `channels.mixin${basePath}.dmPolicy`,
         allowFromPath: `channels.mixin${basePath}.allowFrom`,
-        approveHint: allowFrom.length > 0
-          ? `已配置白名单用户数 ${allowFrom.length}，将用户的 Mixin UUID 添加到 allowFrom 列表即可授权`
-          : "将用户的 Mixin UUID 添加到 allowFrom 列表即可授权",
+        approveHint: policy === "pairing"
+          ? formatPairingApproveHint("mixin")
+          : allowFrom.length > 0
+            ? `已配置白名单用户数 ${allowFrom.length}，将用户的 Mixin UUID 添加到 allowFrom 列表即可授权`
+            : "将用户的 Mixin UUID 添加到 allowFrom 列表即可授权",
       };
     },
   },

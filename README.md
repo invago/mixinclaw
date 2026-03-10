@@ -69,6 +69,7 @@ Edit your `openclaw.json` file manually and add both the channel configuration a
       "sessionId": "YOUR_SESSION_ID",
       "serverPublicKey": "YOUR_SERVER_PUBLIC_KEY_BASE64",
       "sessionPrivateKey": "YOUR_SESSION_PRIVATE_KEY_BASE64",
+      "dmPolicy": "pairing",
       "allowFrom": ["AUTHORIZED_USER_UUID"],
       "proxy": {
         "enabled": true,
@@ -93,8 +94,31 @@ Notes:
 
 - `channels.mixin` configures the channel itself.
 - `plugins.allow` and `plugins.entries.mixin.enabled` are also required so OpenClaw loads this plugin.
-- This plugin currently uses `allowFrom` as its sender allowlist. Do not assume other generic OpenClaw DM policy fields apply here unless the plugin explicitly supports them.
+- Mixin supports the standard OpenClaw direct-message policies. The recommended setting is `dmPolicy: "pairing"`.
+- `allowFrom` remains useful for pre-authorized users or manual overrides. Pairing approvals are stored in OpenClaw's pairing allowlist store.
 - If `proxy.url` already contains credentials, `proxy.username` and `proxy.password` can be omitted.
+
+## Pairing
+
+For private chats, the recommended mode is:
+
+```json
+{
+  "channels": {
+    "mixin": {
+      "dmPolicy": "pairing"
+    }
+  }
+}
+```
+
+Behavior:
+
+- A new, unauthorized Mixin user gets an 8-character pairing code in the DM.
+- Approve that user with `openclaw pairing approve mixin <code>`.
+- Use `openclaw pairing list mixin` to inspect pending pairing requests.
+- Once approved, the user is added to OpenClaw's pairing allowlist store for the `mixin` channel.
+- `allowFrom` is still honored and can be used alongside pairing for users you want to pre-authorize.
 
 ## Avoid Cross-Channel Session Mixing
 
@@ -121,6 +145,7 @@ Use `per-account-channel-peer` instead if you run multiple Mixin accounts and wa
 | `sessionId` | Yes | - | Session UUID |
 | `serverPublicKey` | Yes | - | Server Public Key (Base64) |
 | `sessionPrivateKey` | Yes | - | Session Private Key (Ed25519 Base64) |
+| `dmPolicy` | No | `pairing` | Direct-message policy: `pairing`, `allowlist`, `open`, or `disabled` |
 | `allowFrom` | No | `[]` | Authorized user UUID whitelist |
 | `requireMentionInGroup` | No | `true` | Require trigger words in group chats |
 | `debug` | No | `false` | Debug mode |
@@ -235,6 +260,7 @@ Rules:
           "sessionId": "...",
           "serverPublicKey": "...",
           "sessionPrivateKey": "...",
+          "dmPolicy": "pairing",
           "allowFrom": ["..."]
         },
         "bot2": {
@@ -260,14 +286,14 @@ Rules:
 |---------|---------------|
 | Plugin not loaded | Run `openclaw plugins list` and `openclaw plugins info mixin` |
 | Channel not starting | Verify `channels.mixin` exists and credentials are complete |
-| Not receiving messages | Check `allowFrom`, trigger words, and Blaze connectivity |
+| Not receiving messages | Check pairing approval or `allowFrom`, trigger words, and Blaze connectivity |
 | Messages not sending | Check proxy reachability, outbox backlog, and `/mixin-outbox` output |
 | Repeated inbound pushes | Check Blaze connectivity and confirm ACK logs/behavior |
 
 ## Security Notes
 
 - Keep `sessionPrivateKey` private.
-- Use `allowFrom` in production.
+- Use `dmPolicy: "pairing"` or a strict `allowFrom` list in production.
 - Outbox files contain pending message bodies, so do not expose the `data/` directory.
 
 ## Links
