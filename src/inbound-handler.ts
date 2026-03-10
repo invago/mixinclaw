@@ -1,3 +1,6 @@
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import type { OpenClawConfig } from "openclaw/plugin-sdk";
 import { getAccountConfig } from "./config.js";
 import type { MixinAccountConfig } from "./config-schema.js";
@@ -108,12 +111,38 @@ function normalizeAllowEntry(entry: string): string {
   return entry.trim().toLowerCase();
 }
 
+function resolveMixinAllowFromPaths(accountId: string): string[] {
+  const openclawHome = process.env.OPENCLAW_HOME?.trim() || path.join(os.homedir(), ".openclaw");
+  const oauthDir = path.join(openclawHome, "credentials");
+  const normalizedAccountId = accountId.trim().toLowerCase();
+  const paths = [path.join(oauthDir, "mixin-allowFrom.json")];
+  if (normalizedAccountId) {
+    paths.unshift(path.join(oauthDir, `mixin-${normalizedAccountId}-allowFrom.json`));
+  }
+  return Array.from(new Set(paths));
+}
+
+async function readAllowFromFile(filePath: string): Promise<string[]> {
+  try {
+    const raw = await fs.readFile(filePath, "utf8");
+    const parsed = JSON.parse(raw) as { allowFrom?: unknown };
+    return Array.isArray(parsed.allowFrom)
+      ? parsed.allowFrom.map((entry) => String(entry)).map(normalizeAllowEntry).filter(Boolean)
+      : [];
+  } catch {
+    return [];
+  }
+}
+
 async function readEffectiveAllowFrom(
   rt: ReturnType<typeof getMixinRuntime>,
+  accountId: string,
   configAllowFrom: string[],
 ): Promise<Set<string>> {
-  const storeAllowFrom = await rt.channel.pairing.readAllowFromStore("mixin").catch(() => []);
-  return new Set([...configAllowFrom, ...storeAllowFrom].map(normalizeAllowEntry).filter(Boolean));
+  const runtimeAllowFrom = await rt.channel.pairing.readAllowFromStore("mixin", undefined, accountId).catch(() => []);
+  const fileEntries = await Promise.all(resolveMixinAllowFromPaths(accountId).map((filePath) => readAllowFromFile(filePath)));
+  const fileAllowFrom = fileEntries.flat();
+  return new Set([...configAllowFrom, ...runtimeAllowFrom, ...fileAllowFrom].map(normalizeAllowEntry).filter(Boolean));
 }
 
 async function deliverMixinReply(params: {
@@ -183,7 +212,7 @@ async function handleUnauthorizedDirectMessage(params: {
       const { code, created } = await rt.channel.pairing.upsertPairingRequest({
         channel: "mixin",
         id: msg.userId,
-        accountId: accountId === "default" ? undefined : accountId,
+        accountId,
         meta: {
           conversationId: msg.conversationId,
         },
@@ -267,7 +296,7 @@ export async function handleMixinMessage(params: {
     return;
   }
 
-  const effectiveAllowFrom = await readEffectiveAllowFrom(rt, config.allowFrom);
+  const effectiveAllowFrom = await readEffectiveAllowFrom(rt, accountId, config.allowFrom);
   const normalizedUserId = normalizeAllowEntry(msg.userId);
   const dmPolicy = config.dmPolicy ?? "pairing";
   const isAuthorized = dmPolicy === "open" || effectiveAllowFrom.has(normalizedUserId);
