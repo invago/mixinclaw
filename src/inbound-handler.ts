@@ -110,10 +110,9 @@ function normalizeAllowEntry(entry: string): string {
 
 async function readEffectiveAllowFrom(
   rt: ReturnType<typeof getMixinRuntime>,
-  accountId: string,
   configAllowFrom: string[],
 ): Promise<Set<string>> {
-  const storeAllowFrom = await rt.channel.pairing.readAllowFromStore("mixin", process.env, accountId).catch(() => []);
+  const storeAllowFrom = await rt.channel.pairing.readAllowFromStore("mixin").catch(() => []);
   return new Set([...configAllowFrom, ...storeAllowFrom].map(normalizeAllowEntry).filter(Boolean));
 }
 
@@ -184,7 +183,7 @@ async function handleUnauthorizedDirectMessage(params: {
       const { code, created } = await rt.channel.pairing.upsertPairingRequest({
         channel: "mixin",
         id: msg.userId,
-        accountId,
+        accountId: accountId === "default" ? undefined : accountId,
         meta: {
           conversationId: msg.conversationId,
         },
@@ -268,7 +267,7 @@ export async function handleMixinMessage(params: {
     return;
   }
 
-  const effectiveAllowFrom = await readEffectiveAllowFrom(rt, accountId, config.allowFrom);
+  const effectiveAllowFrom = await readEffectiveAllowFrom(rt, config.allowFrom);
   const normalizedUserId = normalizeAllowEntry(msg.userId);
   const dmPolicy = config.dmPolicy ?? "pairing";
   const isAuthorized = dmPolicy === "open" || effectiveAllowFrom.has(normalizedUserId);
