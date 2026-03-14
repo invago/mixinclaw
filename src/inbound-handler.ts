@@ -7,6 +7,7 @@ import type { AgentMediaPayload, OpenClawConfig } from "openclaw/plugin-sdk";
 import { getAccountConfig, resolveConversationPolicy } from "./config.js";
 import type { MixinAccountConfig } from "./config-schema.js";
 import { decryptMixinMessage } from "./crypto.js";
+import { getMixpayOrderStatusText, getRecentMixpayOrdersText, refreshMixpayOrderStatus } from "./mixpay-worker.js";
 import { buildRequestConfig } from "./proxy.js";
 import { buildMixinOutboundPlanFromReplyText, executeMixinOutboundPlan } from "./outbound-plan.js";
 import { getMixinRuntime } from "./runtime.js";
@@ -218,6 +219,28 @@ function isOutboxPurgeInvalidCommand(text: string): boolean {
   return text.trim().toLowerCase() === "/mixin-outbox purge-invalid";
 }
 
+function isCollectStatusCommand(text: string): boolean {
+  return /^\/collect\s+status\s+\S+/i.test(text.trim());
+}
+
+function isCollectRecentCommand(text: string): boolean {
+  return /^\/collect\s+recent(?:\s+\d+)?$/i.test(text.trim());
+}
+
+function parseCollectStatusCommand(text: string): string | null {
+  const match = text.trim().match(/^\/collect\s+status\s+(\S+)$/i);
+  return match?.[1]?.trim() || null;
+}
+
+function parseCollectRecentLimit(text: string): number {
+  const match = text.trim().match(/^\/collect\s+recent(?:\s+(\d+))?$/i);
+  const parsed = Number.parseInt(match?.[1] ?? "", 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return 5;
+  }
+  return Math.min(parsed, 20);
+}
+
 function formatOutboxStatus(status: Awaited<ReturnType<typeof getOutboxStatus>>): string {
   const lines = [
     `Outbox pending: ${status.totalPending}`,
@@ -294,10 +317,11 @@ async function deliverMixinReply(params: {
   accountId: string;
   conversationId: string;
   recipientId?: string;
+  creatorId?: string;
   text: string;
   log: { info: (m: string) => void; warn: (m: string) => void; error: (m: string, e?: unknown) => void };
 }): Promise<void> {
-  const { cfg, accountId, conversationId, recipientId, text, log } = params;
+  const { cfg, accountId, conversationId, recipientId, creatorId, text, log } = params;
   const plan = buildMixinOutboundPlanFromReplyText(text);
   if (plan.steps.length === 0) {
     return;
@@ -310,6 +334,7 @@ async function deliverMixinReply(params: {
     accountId,
     conversationId,
     recipientId,
+    creatorId,
     steps: plan.steps,
     log,
   });
@@ -542,6 +567,28 @@ export async function handleMixinMessage(params: {
     return;
   }
 
+  if (isCollectStatusCommand(text)) {
+    const orderId = parseCollectStatusCommand(text);
+    if (orderId) {
+      await refreshMixpayOrderStatus({ cfg, accountId, orderId });
+    }
+    const replyText = orderId ? await getMixpayOrderStatusText(orderId) : "Usage: /collect status <orderId>";
+    const recipientId = isDirect ? msg.userId : undefined;
+    await sendTextMessage(cfg, accountId, msg.conversationId, recipientId, replyText, log);
+    return;
+  }
+
+  if (isCollectRecentCommand(text)) {
+    const recipientId = isDirect ? msg.userId : undefined;
+    const replyText = await getRecentMixpayOrdersText({
+      accountId,
+      conversationId: msg.conversationId,
+      limit: parseCollectRecentLimit(text),
+    });
+    await sendTextMessage(cfg, accountId, msg.conversationId, recipientId, replyText, log);
+    return;
+  }
+
   const peerId = isDirect ? msg.userId : msg.conversationId;
   log.info(`[mixin] resolving route: channel=mixin, accountId=${accountId}, peer.kind=${isDirect ? "direct" : "group"}, peer.id=${peerId}`);
 
@@ -628,6 +675,7 @@ export async function handleMixinMessage(params: {
           accountId,
           conversationId: msg.conversationId,
           recipientId,
+          creatorId: msg.userId,
           text: replyText,
           log,
         });

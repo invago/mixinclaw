@@ -11,6 +11,7 @@ import { runBlazeLoop } from "./blaze-service.js";
 import { MixinConfigSchema } from "./config-schema.js";
 import { describeAccount, isConfigured, listAccountIds, resolveAccount, resolveDefaultAccountId, resolveMediaMaxMb } from "./config.js";
 import { handleMixinMessage, type MixinInboundMessage } from "./inbound-handler.js";
+import { getMixpayStatusSnapshot, startMixpayWorker } from "./mixpay-worker.js";
 import { buildMixinOutboundPlanFromReplyPayload, executeMixinOutboundPlan } from "./outbound-plan.js";
 import { getMixinRuntime } from "./runtime.js";
 import { getOutboxStatus, sendAudioMessage, sendFileMessage, sendTextMessage, startSendWorker } from "./send-service.js";
@@ -279,7 +280,9 @@ export const mixinPlugin = {
 
       await startSendWorker(cfg, log);
       const outboxStatus = await getOutboxStatus().catch(() => null);
-      const statusSnapshot = resolveMixinStatusSnapshot(cfg, accountId, outboxStatus);
+      await startMixpayWorker(cfg, log);
+      const mixpayStatus = await getMixpayStatusSnapshot().catch(() => null);
+      const statusSnapshot = resolveMixinStatusSnapshot(cfg, accountId, outboxStatus, mixpayStatus);
       ctx.setStatus({
         accountId,
         ...statusSnapshot,

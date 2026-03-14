@@ -4,6 +4,7 @@ import {
   MixinConversationConfigSchema,
   type MixinAccountConfig,
   type MixinConversationConfig,
+  type MixinMixpayConfig,
 } from "./config-schema.js";
 
 type RawMixinConfig = Partial<MixinAccountConfig> & {
@@ -85,6 +86,10 @@ export function resolveAccount(cfg: OpenClawConfig, accountId?: string) {
 
 export function resolveMediaMaxMb(cfg: OpenClawConfig, accountId?: string): number | undefined {
   return getAccountConfig(cfg, accountId).mediaMaxMb;
+}
+
+export function getMixpayConfig(cfg: OpenClawConfig, accountId?: string): MixinMixpayConfig | undefined {
+  return getAccountConfig(cfg, accountId).mixpay;
 }
 
 function getRawAccountConfig(cfg: OpenClawConfig, accountId?: string): Partial<MixinAccountConfig> {

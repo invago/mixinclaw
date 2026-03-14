@@ -32,6 +32,21 @@ export const MixinConversationConfigSchema = z.object({
 
 export type MixinConversationConfig = z.infer<typeof MixinConversationConfigSchema>;
 
+export const MixinMixpayConfigSchema = z.object({
+  enabled: z.boolean().optional().default(false),
+  apiBaseUrl: z.string().optional(),
+  payeeId: z.string().optional(),
+  defaultQuoteAssetId: z.string().optional(),
+  defaultSettlementAssetId: z.string().optional(),
+  expireMinutes: z.number().positive().optional().default(15),
+  pollIntervalSec: z.number().positive().optional().default(30),
+  allowedCreators: z.array(z.string()).optional().default([]),
+  notifyOnPending: z.boolean().optional().default(false),
+  notifyOnPaidLess: z.boolean().optional().default(true),
+});
+
+export type MixinMixpayConfig = z.infer<typeof MixinMixpayConfigSchema>;
+
 export const MixinAccountConfigSchema = z.object({
   name: z.string().optional(),
   enabled: z.boolean().optional().default(true),
@@ -49,6 +64,7 @@ export const MixinAccountConfigSchema = z.object({
   audioAutoDetectDuration: z.boolean().optional().default(true),
   audioSendAsVoiceByDefault: z.boolean().optional().default(true),
   audioRequireFfprobe: z.boolean().optional().default(false),
+  mixpay: MixinMixpayConfigSchema.optional(),
   conversations: z.record(z.string(), MixinConversationConfigSchema.optional()).optional(),
   debug: z.boolean().optional().default(false),
   proxy: MixinProxyConfigSchema.optional(),

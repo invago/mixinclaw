@@ -1,3 +1,4 @@
+import type { MixinCollectRequest } from "./mixpay-worker.js";
 import type { MixinAudio, MixinButton, MixinCard, MixinFile } from "./send-service.js";
 
 type LinkItem = {
@@ -10,6 +11,7 @@ export type MixinReplyPlan =
   | { kind: "post"; text: string }
   | { kind: "file"; file: MixinFile }
   | { kind: "audio"; audio: MixinAudio }
+  | { kind: "collect"; collect: MixinCollectRequest }
   | { kind: "buttons"; intro?: string; buttons: MixinButton[] }
   | { kind: "card"; card: MixinCard };
 
@@ -21,7 +23,7 @@ const MAX_BUTTONS = 6;
 const MAX_BUTTON_LABEL = 36;
 const MAX_CARD_TITLE = 36;
 const MAX_CARD_DESCRIPTION = 120;
-const TEMPLATE_REGEX = /^```mixin-(text|post|buttons|card|file|audio)\s*\n([\s\S]*?)\n```$/i;
+const TEMPLATE_REGEX = /^```mixin-(text|post|buttons|card|file|audio|collect)\s*\n([\s\S]*?)\n```$/i;
 
 function truncate(value: string, limit: number): string {
   return value.length <= limit ? value : `${value.slice(0, Math.max(0, limit - 3))}...`;
@@ -170,6 +172,51 @@ function parseAudioTemplate(body: string): MixinReplyPlan | null {
   };
 }
 
+function parseCollectTemplate(body: string): MixinReplyPlan | null {
+  const parsed = parseJsonTemplate<{
+    amount?: unknown;
+    assetId?: unknown;
+    quoteAssetId?: unknown;
+    settlementAssetId?: unknown;
+    memo?: unknown;
+    orderId?: unknown;
+    expireMinutes?: unknown;
+  }>(body);
+  if (!parsed) {
+    return null;
+  }
+
+  const amount = typeof parsed.amount === "string"
+    ? normalizeWhitespace(parsed.amount)
+    : typeof parsed.amount === "number"
+      ? String(parsed.amount)
+      : "";
+  const assetId = typeof parsed.assetId === "string"
+    ? normalizeWhitespace(parsed.assetId)
+    : typeof parsed.quoteAssetId === "string"
+      ? normalizeWhitespace(parsed.quoteAssetId)
+      : "";
+  if (!amount) {
+    return null;
+  }
+
+  return {
+    kind: "collect",
+    collect: {
+      amount,
+      assetId: assetId || undefined,
+      settlementAssetId: typeof parsed.settlementAssetId === "string"
+        ? normalizeWhitespace(parsed.settlementAssetId)
+        : undefined,
+      memo: typeof parsed.memo === "string" ? normalizeWhitespace(parsed.memo) : undefined,
+      orderId: typeof parsed.orderId === "string" ? normalizeWhitespace(parsed.orderId) : undefined,
+      expireMinutes: typeof parsed.expireMinutes === "number" && Number.isFinite(parsed.expireMinutes)
+        ? parsed.expireMinutes
+        : undefined,
+    },
+  };
+}
+
 function parseExplicitTemplate(text: string): MixinReplyPlanResolution {
   const match = text.match(TEMPLATE_REGEX);
   if (!match) {
@@ -201,6 +248,10 @@ function parseExplicitTemplate(text: string): MixinReplyPlanResolution {
 
   if (templateType === "audio") {
     return { matchedTemplate: true, plan: parseAudioTemplate(body), error: "Invalid mixin-audio template JSON" };
+  }
+
+  if (templateType === "collect") {
+    return { matchedTemplate: true, plan: parseCollectTemplate(body), error: "Invalid mixin-collect template JSON" };
   }
 
   return { matchedTemplate: true, plan: null, error: "Unknown Mixin template type" };

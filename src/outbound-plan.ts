@@ -1,5 +1,6 @@
 import type { ReplyPayload } from "openclaw/plugin-sdk";
 import type { OpenClawConfig } from "openclaw/plugin-sdk";
+import { createMixinCollectOrder, formatMixpayOrderSummary } from "./mixpay-worker.js";
 import { buildMixinReplyPlan, resolveMixinReplyPlan } from "./reply-format.js";
 import {
   sendAudioMessage,
@@ -21,6 +22,7 @@ export type MixinOutboundStep =
   | { kind: "post"; text: string }
   | { kind: "file"; file: Parameters<typeof sendFileMessage>[4] }
   | { kind: "audio"; audio: Parameters<typeof sendAudioMessage>[4] }
+  | { kind: "collect"; collect: Parameters<typeof createMixinCollectOrder>[0]["request"] }
   | { kind: "buttons"; intro?: string; buttons: Parameters<typeof sendButtonGroupMessage>[4] }
   | { kind: "card"; card: Parameters<typeof sendCardMessage>[4] }
   | { kind: "media-url"; mediaUrl: string };
@@ -77,6 +79,10 @@ function appendReplyTextPlan(
     steps.push({ kind: "audio", audio: plan.audio });
     return;
   }
+  if (plan.kind === "collect") {
+    steps.push({ kind: "collect", collect: plan.collect });
+    return;
+  }
   if (plan.kind === "buttons") {
     steps.push({ kind: "buttons", intro: plan.intro, buttons: plan.buttons });
     return;
@@ -118,11 +124,12 @@ export async function executeMixinOutboundPlan(params: {
   accountId: string;
   conversationId: string;
   recipientId?: string;
+  creatorId?: string;
   steps: MixinOutboundStep[];
   log?: SendLog;
   sendMediaUrl?: (mediaUrl: string) => Promise<string | undefined>;
 }): Promise<string | undefined> {
-  const { cfg, accountId, conversationId, recipientId, steps, log, sendMediaUrl } = params;
+  const { cfg, accountId, conversationId, recipientId, creatorId, steps, log, sendMediaUrl } = params;
   let lastMessageId: string | undefined;
 
   for (const step of steps) {
@@ -157,6 +164,23 @@ export async function executeMixinOutboundPlan(params: {
       const result = await sendAudioMessage(cfg, accountId, conversationId, recipientId, step.audio, log);
       if (!result.ok) {
         throw new Error(result.error ?? "mixin outbound audio send failed");
+      }
+      lastMessageId = result.messageId ?? lastMessageId;
+      continue;
+    }
+
+    if (step.kind === "collect") {
+      const order = await createMixinCollectOrder({
+        cfg,
+        accountId,
+        conversationId,
+        recipientId,
+        creatorId: creatorId ?? recipientId ?? conversationId,
+        request: step.collect,
+      });
+      const result = await sendTextMessage(cfg, accountId, conversationId, recipientId, formatMixpayOrderSummary(order), log);
+      if (!result.ok) {
+        throw new Error(result.error ?? "mixin outbound MixPay collect send failed");
       }
       lastMessageId = result.messageId ?? lastMessageId;
       continue;

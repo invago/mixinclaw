@@ -44,6 +44,17 @@ export function resolveOutboxPaths(env: NodeJS.ProcessEnv = process.env): {
   };
 }
 
+export function resolveMixpayStorePaths(env: NodeJS.ProcessEnv = process.env): {
+  storeDir: string;
+  storeFile: string;
+} {
+  const storeDir = path.join(resolveStateDir(env), "mixin");
+  return {
+    storeDir,
+    storeFile: path.join(storeDir, "mixpay-orders.json"),
+  };
+}
+
 export async function readConfig(env: NodeJS.ProcessEnv = process.env): Promise<{
   path: string | null;
   config: Record<string, unknown> | null;

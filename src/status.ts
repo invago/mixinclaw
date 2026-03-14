@@ -2,6 +2,7 @@ import { buildBaseAccountStatusSnapshot, buildBaseChannelStatusSummary } from "o
 import type { OpenClawConfig } from "openclaw/plugin-sdk";
 import { getAccountConfig, resolveDefaultAccountId } from "./config.js";
 import { getOutboxPathsSnapshot, type OutboxStatus } from "./send-service.js";
+import type { getMixpayStatusSnapshot } from "./mixpay-worker.js";
 
 type RuntimeLifecycleSnapshot = {
   running?: boolean | null;
@@ -23,6 +24,9 @@ type MixinChannelStatusSnapshot = {
   outboxFile?: string | null;
   outboxPending?: number | null;
   mediaMaxMb?: number | null;
+  mixpayPendingOrders?: number | null;
+  mixpayStoreDir?: string | null;
+  mixpayStoreFile?: string | null;
 };
 
 type MixinStatusAccount = {
@@ -44,12 +48,16 @@ export function resolveMixinStatusSnapshot(
   cfg: OpenClawConfig,
   accountId?: string,
   outboxStatus?: OutboxStatus | null,
+  mixpayStatus?: Awaited<ReturnType<typeof getMixpayStatusSnapshot>> | null,
 ): {
   defaultAccountId: string;
   outboxDir: string;
   outboxFile: string;
   outboxPending: number;
   mediaMaxMb: number | null;
+  mixpayPendingOrders: number;
+  mixpayStoreDir: string | null;
+  mixpayStoreFile: string | null;
 } {
   const defaultAccountId = resolveDefaultAccountId(cfg);
   const resolvedAccountId = accountId ?? defaultAccountId;
@@ -61,6 +69,9 @@ export function resolveMixinStatusSnapshot(
     outboxFile,
     outboxPending: outboxStatus?.totalPending ?? 0,
     mediaMaxMb: accountConfig.mediaMaxMb ?? null,
+    mixpayPendingOrders: mixpayStatus?.pendingOrders ?? 0,
+    mixpayStoreDir: mixpayStatus?.storeDir ?? null,
+    mixpayStoreFile: mixpayStatus?.storeFile ?? null,
   };
 }
 
@@ -75,6 +86,9 @@ export function buildMixinChannelSummary(params: {
     outboxFile: snapshot.outboxFile ?? null,
     outboxPending: snapshot.outboxPending ?? 0,
     mediaMaxMb: snapshot.mediaMaxMb ?? null,
+    mixpayPendingOrders: snapshot.mixpayPendingOrders ?? 0,
+    mixpayStoreDir: snapshot.mixpayStoreDir ?? null,
+    mixpayStoreFile: snapshot.mixpayStoreFile ?? null,
   };
 }
 

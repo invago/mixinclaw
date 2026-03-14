@@ -90,6 +90,16 @@ Edit your `openclaw.json` file manually and add both the channel configuration a
       "audioSendAsVoiceByDefault": true,
       "audioAutoDetectDuration": true,
       "audioRequireFfprobe": false,
+      "mixpay": {
+        "enabled": true,
+        "payeeId": "YOUR_MIXPAY_PAYEE_ID",
+        "defaultSettlementAssetId": "YOUR_SETTLEMENT_ASSET_ID",
+        "expireMinutes": 15,
+        "pollIntervalSec": 30,
+        "allowedCreators": ["AUTHORIZED_USER_UUID"],
+        "notifyOnPending": false,
+        "notifyOnPaidLess": true
+      },
       "proxy": {
         "enabled": true,
         "url": "socks5://127.0.0.1:10808",
@@ -175,6 +185,15 @@ Use `per-account-channel-peer` instead if you run multiple Mixin accounts and wa
 | `audioSendAsVoiceByDefault` | No | `true` | Send OpenClaw native outbound audio as Mixin voice when possible |
 | `audioAutoDetectDuration` | No | `true` | Detect native outbound audio duration with `ffprobe` before sending voice |
 | `audioRequireFfprobe` | No | `false` | Fail native outbound audio instead of falling back to file when duration detection is unavailable |
+| `mixpay.enabled` | No | `false` | Enable MixPay collect support for this Mixin account |
+| `mixpay.payeeId` | Required when enabled | - | MixPay merchant/payee ID used to create one-time payment orders |
+| `mixpay.defaultQuoteAssetId` | No | - | Default quote asset ID for collect templates or future collect commands |
+| `mixpay.defaultSettlementAssetId` | No | - | Default settlement asset ID for MixPay orders |
+| `mixpay.expireMinutes` | No | `15` | Default MixPay order expiration time in minutes |
+| `mixpay.pollIntervalSec` | No | `30` | Poll interval in seconds for pending MixPay orders |
+| `mixpay.allowedCreators` | No | `[]` | Optional sender UUID allowlist for creating MixPay collect orders |
+| `mixpay.notifyOnPending` | No | `false` | Notify the chat when MixPay reports `pending` |
+| `mixpay.notifyOnPaidLess` | No | `true` | Notify the chat when MixPay indicates an underpayment |
 | `conversations.<conversationId>.enabled` | No | `true` | Enable or disable a specific group conversation |
 | `conversations.<conversationId>.requireMention` | No | Inherit account | Override group trigger-word requirement for a specific conversation |
 | `conversations.<conversationId>.allowFrom` | No | Inherit account | Override group sender allowlist for a specific conversation |
@@ -245,6 +264,8 @@ Plugin-specific command:
 
 - Send `/mixin-outbox` to inspect the current pending queue size, next retry time, and latest error.
 - Send `/mixin-outbox purge-invalid` to remove old `APP_CARD` / `APP_BUTTON_GROUP` entries that are stuck on permanent invalid-field errors.
+- Send `/collect status <orderId>` to refresh and inspect a stored MixPay collect order.
+- Send `/collect recent` or `/collect recent 10` to list recent MixPay collect orders for the current conversation.
 
 Companion onboarding CLI:
 
@@ -290,6 +311,38 @@ Current limits:
 Manual test guide:
 
 - See [docs/media-testing.md](docs/media-testing.md) for ready-to-run prompts and expected results.
+
+## MixPay Collect
+
+Mixin now supports MixPay collection through one-time payment orders.
+
+Current capabilities:
+
+- `mixin-collect` explicit reply template creates a MixPay collect order
+- Collect orders are stored locally under the OpenClaw state directory
+- Pending orders are polled in the background
+- Success and terminal status changes are sent back to the original conversation
+- `/collect status <orderId>` refreshes the order from MixPay before replying
+- `assetId` in the template can be omitted when `mixpay.defaultQuoteAssetId` is configured
+
+Template example:
+
+````text
+```mixin-collect
+{
+  "amount": "1",
+  "assetId": "c6d0c728-2624-429b-8e0d-d9d19b6592fa",
+  "memo": "Order #1001"
+}
+```
+````
+
+Rules:
+
+- `amount` is required; `assetId` is required unless `mixpay.defaultQuoteAssetId` is configured
+- `settlementAssetId`, `memo`, `orderId`, and `expireMinutes` are optional
+- Payment success is confirmed from MixPay server-side query results, not only from the client page
+- `mixpay.allowedCreators` can restrict who is allowed to create collect orders
 
 ## Explicit Reply Templates
 
