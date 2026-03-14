@@ -25,13 +25,13 @@ openclaw plugins install @invago/mixin
 
 `@invago/mixin` 是发布后的 npm 包名，OpenClaw 内部的运行时/插件名称仍然是 `mixin`。
 
-如果插件已经安装过，后续升级仍然使用同一个安装命令即可，不需要单独的 update 命令：
+如果插件已经安装过，后续升级请直接用插件 ID：
 
 ```bash
-openclaw plugins install @invago/mixin
+openclaw plugins update mixin
 ```
 
-如果你要安装指定版本，也可以在同一个命令里直接带版本号：
+如果你要首次安装指定版本，也可以直接带版本号：
 
 ```bash
 openclaw plugins install @invago/mixin@<version>
@@ -237,14 +237,9 @@ Mixin 群聊本身会按频道隔离，但私聊会话是否独立，取决于 O
 ```bash
 openclaw plugins list
 openclaw plugins info mixin
+openclaw plugins update mixin
 openclaw channels status --probe
 openclaw status
-```
-
-插件升级仍然使用同一个安装命令：
-
-```bash
-openclaw plugins install @invago/mixin
 ```
 
 插件内诊断命令：
