@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { MixinApi } from "@mixin.dev/mixin-node-sdk";
 import {
   buildChannelConfigSchema,
   createDefaultChannelRuntimeState,
@@ -10,9 +11,11 @@ import type { ChannelGatewayContext, OpenClawConfig, ReplyPayload } from "opencl
 import { runBlazeLoop } from "./blaze-service.js";
 import { MixinConfigSchema } from "./config-schema.js";
 import { describeAccount, isConfigured, listAccountIds, resolveAccount, resolveDefaultAccountId, resolveMediaMaxMb } from "./config.js";
+import type { MixinAccountConfig } from "./config-schema.js";
 import { handleMixinMessage, type MixinInboundMessage } from "./inbound-handler.js";
 import { getMixpayStatusSnapshot, startMixpayWorker } from "./mixpay-worker.js";
 import { buildMixinOutboundPlanFromReplyPayload, executeMixinOutboundPlan } from "./outbound-plan.js";
+import { buildRequestConfig } from "./proxy.js";
 import { getMixinRuntime } from "./runtime.js";
 import { getOutboxStatus, sendAudioMessage, sendFileMessage, sendTextMessage, startSendWorker } from "./send-service.js";
 import { buildMixinAccountSnapshot, buildMixinChannelSummary, resolveMixinStatusSnapshot } from "./status.js";
@@ -24,6 +27,12 @@ const MAX_DELAY = 3000;
 const MULTIPLIER = 1.5;
 const MEDIA_MAX_BYTES = 30 * 1024 * 1024;
 const execFileAsync = promisify(execFile);
+const CONVERSATION_CATEGORY_CACHE_TTL_MS = 5 * 60 * 1000;
+
+const conversationCategoryCache = new Map<string, {
+  category: "CONTACT" | "GROUP";
+  expiresAt: number;
+}>();
 
 async function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -34,6 +43,53 @@ function maskKey(key: string): string {
     return "****";
   }
   return key.slice(0, 4) + "****" + key.slice(-4);
+}
+
+function buildClient(config: MixinAccountConfig) {
+  return MixinApi({
+    keystore: {
+      app_id: config.appId!,
+      session_id: config.sessionId!,
+      server_public_key: config.serverPublicKey!,
+      session_private_key: config.sessionPrivateKey!,
+    },
+    requestConfig: buildRequestConfig(config.proxy),
+  });
+}
+
+async function resolveIsDirectMessage(params: {
+  config: MixinAccountConfig;
+  conversationId?: string;
+  log: {
+    info: (m: string) => void;
+    warn: (m: string) => void;
+  };
+}): Promise<boolean> {
+  const conversationId = params.conversationId?.trim();
+  if (!conversationId) {
+    return true;
+  }
+
+  const cached = conversationCategoryCache.get(conversationId);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.category !== "GROUP";
+  }
+
+  try {
+    const client = buildClient(params.config);
+    const conversation = await client.conversation.fetch(conversationId);
+    const category = conversation.category === "GROUP" ? "GROUP" : "CONTACT";
+    conversationCategoryCache.set(conversationId, {
+      category,
+      expiresAt: Date.now() + CONVERSATION_CATEGORY_CACHE_TTL_MS,
+    });
+    return category !== "GROUP";
+  } catch (err) {
+    params.log.warn(
+      `[mixin] failed to resolve conversation category: conversationId=${conversationId}, error=${err instanceof Error ? err.message : String(err)}`,
+    );
+    return false;
+  }
 }
 
 async function resolveAudioDurationSeconds(filePath: string): Promise<number | null> {
@@ -320,9 +376,11 @@ export const mixinPlugin = {
                     return;
                   }
 
-                  const isDirect = rawMsg.conversation_id === undefined
-                    ? true
-                    : !rawMsg.representative_id;
+                  const isDirect = await resolveIsDirectMessage({
+                    config,
+                    conversationId: rawMsg.conversation_id,
+                    log,
+                  });
 
                   const msg: MixinInboundMessage = {
                     conversationId: rawMsg.conversation_id ?? "",
