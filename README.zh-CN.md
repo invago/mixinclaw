@@ -259,6 +259,13 @@ Mixin 群聊本身会按频道隔离，但私聊会话是否独立，取决于 O
 - 直接在目标群发送 `/mixin-whoami`
 - 插件会返回当前 `conversationId`、当前发送者 `user_id`，以及一段可直接复制的配置示例
 
+类似 pairing 的群授权方式：
+
+- 未授权成员可以直接在目标群发送 `/mixin-group-auth`
+- 插件会返回一个针对当前 `conversationId + user_id` 的临时批准码
+- 已经授权的操作者可以用 `/mixin-group-approve <code>` 完成批准
+- 批准后，这个发送者会在当前群里生效，不需要手改 `openclaw.json`
+
 日志里看哪里：
 
 - 插件在路由解析时会打印类似 `peer.kind=group, peer.id=<conversationId>`，这里的 `peer.id` 就是群的 `conversationId`
@@ -287,6 +294,8 @@ openclaw status
 - 发送 `/mixin-outbox` 可查看当前待发队列数量、下次重试时间和最新错误。
 - 发送 `/mixin-outbox purge-invalid` 可删除历史遗留的 `APP_CARD` / `APP_BUTTON_GROUP` 永久无效重试项。
 - 在私聊或群里发送 `/mixin-whoami`，插件会返回当前 `user_id`、当前群的 `conversationId`，以及一段可直接复制的配置片段。
+- 在目标群发送 `/mixin-group-auth`，可创建一条待批准的群授权请求。
+- 在已经授权的上下文发送 `/mixin-group-approve <code>`，可批准这条群授权请求。
 - 发送 `/collect status <orderId>` 可刷新并查看某个 MixPay 收款单状态。
 - 发送 `/collect recent` 或 `/collect recent 10` 可查看当前会话最近的 MixPay 收款单。
 

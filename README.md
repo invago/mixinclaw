@@ -259,6 +259,13 @@ Faster option:
 - Send `/mixin-whoami` directly in the target group
 - The plugin replies with the current `conversationId`, the current sender `user_id`, and a ready-to-copy config snippet
 
+Pairing-style group authorization:
+
+- An unauthorized user can send `/mixin-group-auth` in the target group
+- The plugin replies with a temporary approval code for that `conversationId` + `user_id`
+- An already authorized operator can approve it with `/mixin-group-approve <code>`
+- Once approved, that sender is allowed in that specific group conversation without changing `openclaw.json`
+
 Where to look in logs:
 
 - The plugin logs route resolution like `peer.kind=group, peer.id=<conversationId>`, which gives you the group `conversationId`
@@ -287,6 +294,8 @@ Plugin-specific command:
 - Send `/mixin-outbox` to inspect the current pending queue size, next retry time, and latest error.
 - Send `/mixin-outbox purge-invalid` to remove old `APP_CARD` / `APP_BUTTON_GROUP` entries that are stuck on permanent invalid-field errors.
 - Send `/mixin-whoami` in a direct chat or group chat to get the current `user_id`, current group `conversationId`, and a ready-to-copy config snippet.
+- Send `/mixin-group-auth` in a group to create a pending group-authorization request.
+- Send `/mixin-group-approve <code>` from an already authorized context to approve that pending group request.
 - Send `/collect status <orderId>` to refresh and inspect a stored MixPay collect order.
 - Send `/collect recent` or `/collect recent 10` to list recent MixPay collect orders for the current conversation.
 
