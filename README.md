@@ -24,6 +24,18 @@ openclaw plugins install @invago/mixin
 
 `@invago/mixin` is the published npm package name. The OpenClaw runtime/plugin name remains `mixin`.
 
+If the plugin is already installed, use the same command again to upgrade it. You do not need a separate update command:
+
+```bash
+openclaw plugins install @invago/mixin
+```
+
+To install a specific version, use the same command with an explicit version:
+
+```bash
+openclaw plugins install @invago/mixin@<version>
+```
+
 Then confirm the plugin is installed:
 
 ```bash
@@ -226,6 +238,12 @@ openclaw plugins list
 openclaw plugins info mixin
 openclaw channels status --probe
 openclaw status
+```
+
+Plugin upgrades use the same installer command:
+
+```bash
+openclaw plugins install @invago/mixin
 ```
 
 Plugin-specific command:
