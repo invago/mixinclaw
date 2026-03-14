@@ -230,6 +230,17 @@ function resolveOutboxPaths(): {
   };
 }
 
+export function getOutboxPathsSnapshot(): {
+  outboxDir: string;
+  outboxFile: string;
+} {
+  const { outboxDir, outboxFile } = resolveOutboxPaths();
+  return {
+    outboxDir,
+    outboxFile,
+  };
+}
+
 function normalizeErrorMessage(message: string): string {
   if (message.length <= MAX_ERROR_LENGTH) {
     return message;

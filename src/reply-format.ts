@@ -13,6 +13,10 @@ export type MixinReplyPlan =
   | { kind: "buttons"; intro?: string; buttons: MixinButton[] }
   | { kind: "card"; card: MixinCard };
 
+export type MixinReplyPlanResolution =
+  | { matchedTemplate: false; plan: MixinReplyPlan | null }
+  | { matchedTemplate: true; plan: MixinReplyPlan | null; error?: string };
+
 const MAX_BUTTONS = 6;
 const MAX_BUTTON_LABEL = 36;
 const MAX_CARD_TITLE = 36;
@@ -166,40 +170,40 @@ function parseAudioTemplate(body: string): MixinReplyPlan | null {
   };
 }
 
-function parseExplicitTemplate(text: string): MixinReplyPlan | null {
+function parseExplicitTemplate(text: string): MixinReplyPlanResolution {
   const match = text.match(TEMPLATE_REGEX);
   if (!match) {
-    return null;
+    return { matchedTemplate: false, plan: null };
   }
 
   const templateType = (match[1] ?? "").toLowerCase();
   const body = match[2] ?? "";
 
   if (templateType === "text") {
-    return parseTextTemplate(body);
+    return { matchedTemplate: true, plan: parseTextTemplate(body), error: "Invalid mixin-text template body" };
   }
 
   if (templateType === "post") {
-    return parsePostTemplate(body);
+    return { matchedTemplate: true, plan: parsePostTemplate(body), error: "Invalid mixin-post template body" };
   }
 
   if (templateType === "buttons") {
-    return parseButtonsTemplate(body);
+    return { matchedTemplate: true, plan: parseButtonsTemplate(body), error: "Invalid mixin-buttons template JSON" };
   }
 
   if (templateType === "card") {
-    return parseCardTemplate(body);
+    return { matchedTemplate: true, plan: parseCardTemplate(body), error: "Invalid mixin-card template JSON" };
   }
 
   if (templateType === "file") {
-    return parseFileTemplate(body);
+    return { matchedTemplate: true, plan: parseFileTemplate(body), error: "Invalid mixin-file template JSON" };
   }
 
   if (templateType === "audio") {
-    return parseAudioTemplate(body);
+    return { matchedTemplate: true, plan: parseAudioTemplate(body), error: "Invalid mixin-audio template JSON" };
   }
 
-  return null;
+  return { matchedTemplate: true, plan: null, error: "Unknown Mixin template type" };
 }
 
 function toPlainText(text: string): string {
@@ -288,21 +292,21 @@ function isLongStructuredText(text: string): boolean {
   );
 }
 
-export function buildMixinReplyPlan(text: string): MixinReplyPlan | null {
+export function resolveMixinReplyPlan(text: string): MixinReplyPlanResolution {
   const normalized = normalizeWhitespace(text);
   if (!normalized) {
-    return null;
+    return { matchedTemplate: false, plan: null };
   }
 
   const explicit = parseExplicitTemplate(normalized);
-  if (explicit) {
+  if (explicit.matchedTemplate) {
     return explicit;
   }
 
   const links = extractLinks(normalized);
 
   if (isLongStructuredText(normalized)) {
-    return { kind: "post", text: normalized };
+    return { matchedTemplate: false, plan: { kind: "post", text: normalized } };
   }
 
   if (links.length >= 2 && links.length <= MAX_BUTTONS) {
@@ -310,9 +314,12 @@ export function buildMixinReplyPlan(text: string): MixinReplyPlan | null {
       normalized.replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, "").replace(/https?:\/\/[^\s)]+/g, ""),
     );
     return {
-      kind: "buttons",
-      intro: intro || undefined,
-      buttons: buildButtons(links),
+      matchedTemplate: false,
+      plan: {
+        kind: "buttons",
+        intro: intro || undefined,
+        buttons: buildButtons(links),
+      },
     };
   }
 
@@ -320,15 +327,22 @@ export function buildMixinReplyPlan(text: string): MixinReplyPlan | null {
     const title = detectTitle(normalized, links[0].label);
     const description = detectCardDescription(normalized, title) || truncate(links[0].url, MAX_CARD_DESCRIPTION);
     return {
-      kind: "card",
-      card: {
-        title,
-        description,
-        action: links[0].url,
-        shareable: true,
+      matchedTemplate: false,
+      plan: {
+        kind: "card",
+        card: {
+          title,
+          description,
+          action: links[0].url,
+          shareable: true,
+        },
       },
     };
   }
 
-  return { kind: "text", text: toPlainText(normalized) };
+  return { matchedTemplate: false, plan: { kind: "text", text: toPlainText(normalized) } };
+}
+
+export function buildMixinReplyPlan(text: string): MixinReplyPlan | null {
+  return resolveMixinReplyPlan(text).plan;
 }

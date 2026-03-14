@@ -66,12 +66,19 @@ openclaw plugins install .
   "channels": {
     "mixin": {
       "enabled": true,
+      "defaultAccount": "default",
       "appId": "你的 App ID",
       "sessionId": "你的 Session ID",
       "serverPublicKey": "服务端公钥 Base64",
       "sessionPrivateKey": "会话私钥 Base64",
       "dmPolicy": "pairing",
       "allowFrom": ["授权用户 UUID"],
+      "requireMentionInGroup": true,
+      "mediaBypassMentionInGroup": true,
+      "mediaMaxMb": 30,
+      "audioSendAsVoiceByDefault": true,
+      "audioAutoDetectDuration": true,
+      "audioRequireFfprobe": false,
       "proxy": {
         "enabled": true,
         "url": "socks5://127.0.0.1:10808",
@@ -142,13 +149,26 @@ Mixin 群聊本身会按频道隔离，但私聊会话是否独立，取决于 O
 | 参数 | 必填 | 默认值 | 说明 |
 |------|------|--------|------|
 | `enabled` | 否 | `true` | 是否启用该频道账号 |
+| `defaultAccount` | 否 | `default` | 配置了 `accounts` 时默认使用的账号 ID |
 | `appId` | 是 | - | Mixin 应用 UUID |
 | `sessionId` | 是 | - | 会话 UUID |
 | `serverPublicKey` | 是 | - | 服务端公钥 Base64 |
 | `sessionPrivateKey` | 是 | - | 会话私钥 Ed25519 Base64 |
 | `dmPolicy` | 否 | `pairing` | 私聊策略：`pairing`、`allowlist`、`open`、`disabled` |
 | `allowFrom` | 否 | `[]` | 授权用户 UUID 白名单 |
+| `groupPolicy` | 否 | 跟随 OpenClaw 默认值 | 群消息策略：`open`、`allowlist`、`disabled` |
+| `groupAllowFrom` | 否 | `[]` | 当 `groupPolicy` 走 allowlist 时，允许触发群消息的发送者 UUID 白名单 |
 | `requireMentionInGroup` | 否 | `true` | 群聊是否要求触发词 |
+| `mediaBypassMentionInGroup` | 否 | `true` | 群里的文件/语音消息是否可绕过文本触发词过滤 |
+| `mediaMaxMb` | 否 | `30` | 入站和出站媒体大小上限，单位 MB |
+| `audioSendAsVoiceByDefault` | 否 | `true` | OpenClaw 原生音频出站时尽量按 Mixin 语音发送 |
+| `audioAutoDetectDuration` | 否 | `true` | 发送原生音频前是否用 `ffprobe` 自动探测时长 |
+| `audioRequireFfprobe` | 否 | `false` | 时长探测不可用时是否直接失败，而不是降级为文件发送 |
+| `conversations.<conversationId>.enabled` | 否 | `true` | 是否启用某个指定群会话 |
+| `conversations.<conversationId>.requireMention` | 否 | 继承账号级配置 | 覆盖该群会话的触发词要求 |
+| `conversations.<conversationId>.allowFrom` | 否 | 继承账号级配置 | 覆盖该群会话的发送者白名单 |
+| `conversations.<conversationId>.mediaBypassMention` | 否 | 继承账号级配置 | 覆盖该群会话中文件/语音是否绕过触发词过滤 |
+| `conversations.<conversationId>.groupPolicy` | 否 | 继承账号级配置 | 覆盖该群会话的群消息策略 |
 | `debug` | 否 | `false` | 调试模式 |
 | `proxy.enabled` | 否 | `false` | 是否启用插件级代理 |
 | `proxy.url` | 启用时必填 | - | 代理地址，例如 `http://127.0.0.1:7890` 或 `socks5://127.0.0.1:10808` |
@@ -160,6 +180,38 @@ Mixin 群聊本身会按频道隔离，但私聊会话是否独立，取决于 O
 - Mixin 的 HTTP 请求和 Blaze WebSocket 都会走同一个代理。
 - 常见代理地址格式包括 `http://...`、`https://...`、`socks5://...`。
 - 代理软件或代理服务器需要你自己提供，插件只负责使用代理。
+
+## 群聊访问控制
+
+现在除了私聊 `dmPolicy`，Mixin 也支持正式的群聊访问控制：
+
+- `groupPolicy: "open"` 表示群里任何发送者都可以触发。
+- `groupPolicy: "allowlist"` 表示只有 `groupAllowFrom` 里的发送者 UUID 可以触发。
+- `groupPolicy: "disabled"` 表示整个群会话被禁用。
+- `conversations.<conversationId>` 可以对某一个群会话覆盖账号级配置。
+
+示例：
+
+```json
+{
+  "channels": {
+    "mixin": {
+      "groupPolicy": "allowlist",
+      "groupAllowFrom": ["USER_A_UUID"],
+      "conversations": {
+        "70000000-0000-0000-0000-000000000001": {
+          "requireMention": false,
+          "allowFrom": ["USER_B_UUID"],
+          "mediaBypassMention": false
+        },
+        "70000000-0000-0000-0000-000000000002": {
+          "enabled": false
+        }
+      }
+    }
+  }
+}
+```
 
 ## 使用方式
 
@@ -182,6 +234,18 @@ openclaw status
 - 发送 `/mixin-outbox` 可查看当前待发队列数量、下次重试时间和最近错误。
 - 发送 `/mixin-outbox purge-invalid` 可删除历史遗留的 `APP_CARD` / `APP_BUTTON_GROUP` 永久无效重试项。
 
+配套运维 CLI：
+
+- 仓库里已经附带了一套配套工具，见 [tools/mixin-plugin-onboard/README.md](/E:/AI/mixin-claw/tools/mixin-plugin-onboard/README.md)。
+- 这套工具会和主包 `@invago/mixin` 一起发布，不再是单独第二个 npm 包。
+- 当前提供 `info`、`doctor`、`install`、`update` 四个命令，用于本地 OpenClaw + Mixin 插件的安装和诊断。
+- 本地运行示例：
+  - `node --import jiti/register.js tools/mixin-plugin-onboard/src/index.ts info`
+  - `node --import jiti/register.js tools/mixin-plugin-onboard/src/index.ts doctor`
+- 安装后使用示例：
+  - `npx -y @invago/mixin info`
+  - `npx -y @invago/mixin doctor`
+
 ## 投递与重试行为
 
 - 回复消息会先写入本地 outbox，再由后台 worker 发送。
@@ -194,13 +258,14 @@ openclaw status
 当前媒体能力分为发送侧和接收侧：
 
 - OpenClaw 原生媒体发送已经接入频道 `sendMedia`。
+- OpenClaw 原生 `sendPayload` 现在也会复用同一套 Mixin 出站 planner，所以文本、长文、按钮、卡片、文件、语音的选择逻辑和 agent 缓冲回复保持一致。
 - 当插件能把媒体识别为音频并成功拿到时长时，会优先按 `PLAIN_AUDIO` 发送。
 - 如果拿不到音频时长，会平稳降级为普通文件附件发送。
 - 非音频媒体会按 Mixin 文件附件发送。
 - 如果 OpenClaw 同时给出文本和媒体，插件会先发文本，再发文件。
 - 语音气泡式发送目前仍更适合走显式 `mixin-audio` 模板。
 - 入站 `PLAIN_DATA` 和 `PLAIN_AUDIO` 会被下载到本地，并通过 `MediaPath` / `MediaType` 挂到 OpenClaw 入站上下文。
-- 即使启用了 `requireMentionInGroup`，群里的附件消息也不会再因为缺少文本触发词被直接过滤。
+- 即使启用了 `requireMentionInGroup`，群里的附件消息也不会再因为缺少文本触发词被直接过滤；如果你把 `mediaBypassMentionInGroup` 设为 `false`，则会恢复和普通文本相同的群聊触发规则。
 
 当前边界：
 
@@ -298,6 +363,7 @@ openclaw status
 - `mixin-file` 和 `mixin-audio` 也只接受 JSON。
 - `mixin-file` 和 `mixin-audio` 里的 `filePath` 必须是 OpenClaw 所在机器上的绝对路径。
 - `mixin-audio` 里的 `duration` 必填，单位为秒，`waveForm` 可选。
+- 如果显式 `mixin-*` 模板写错，插件不再静默跳过，而会直接发出可见的 `Mixin template error: ...` 文本提示。
 - 按钮和卡片链接必须使用 `http://` 或 `https://`。
 - Mixin 客户端可能要求目标域名已加入机器人应用的 `Resource Patterns` 白名单。
 

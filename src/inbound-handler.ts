@@ -2,22 +2,17 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { MixinApi } from "@mixin.dev/mixin-node-sdk";
-import { buildAgentMediaPayload } from "openclaw/plugin-sdk";
+import { buildAgentMediaPayload, evaluateSenderGroupAccess, resolveDefaultGroupPolicy } from "openclaw/plugin-sdk";
 import type { AgentMediaPayload, OpenClawConfig } from "openclaw/plugin-sdk";
-import { getAccountConfig } from "./config.js";
+import { getAccountConfig, resolveConversationPolicy } from "./config.js";
 import type { MixinAccountConfig } from "./config-schema.js";
 import { decryptMixinMessage } from "./crypto.js";
 import { buildRequestConfig } from "./proxy.js";
-import { buildMixinReplyPlan } from "./reply-format.js";
+import { buildMixinOutboundPlanFromReplyText, executeMixinOutboundPlan } from "./outbound-plan.js";
 import { getMixinRuntime } from "./runtime.js";
 import {
-  sendAudioMessage,
   getOutboxStatus,
   purgePermanentInvalidOutboxEntries,
-  sendFileMessage,
-  sendButtonGroupMessage,
-  sendCardMessage,
-  sendPostMessage,
   sendTextMessage,
 } from "./send-service.js";
 
@@ -100,6 +95,14 @@ function buildClient(config: MixinAccountConfig) {
   });
 }
 
+function resolveInboundMediaMaxBytes(config: MixinAccountConfig): number {
+  const mediaMaxMb = config.mediaMaxMb;
+  if (typeof mediaMaxMb === "number" && Number.isFinite(mediaMaxMb) && mediaMaxMb > 0) {
+    return Math.max(1, Math.floor(mediaMaxMb * 1024 * 1024));
+  }
+  return INBOUND_MEDIA_MAX_BYTES;
+}
+
 function parseInboundAttachmentRequest(category: string, data: string): MixinAttachmentRequest | null {
   if (category !== "PLAIN_DATA" && category !== "PLAIN_AUDIO") {
     return null;
@@ -165,17 +168,18 @@ async function resolveInboundAttachment(params: {
 
   try {
     const client = buildClient(params.config);
+    const maxBytes = resolveInboundMediaMaxBytes(params.config);
     const attachment = await client.attachment.fetch(payload.attachmentId);
     const fetched = await params.rt.channel.media.fetchRemoteMedia({
       url: attachment.view_url,
       filePathHint: payload.fileName,
-      maxBytes: INBOUND_MEDIA_MAX_BYTES,
+      maxBytes,
     });
     const saved = await params.rt.channel.media.saveMediaBuffer(
       fetched.buffer,
       payload.mimeType ?? fetched.contentType,
       "mixin",
-      INBOUND_MEDIA_MAX_BYTES,
+      maxBytes,
       payload.fileName ?? fetched.fileName,
     );
 
@@ -236,6 +240,10 @@ function normalizeAllowEntry(entry: string): string {
   return entry.trim().toLowerCase();
 }
 
+function normalizeAllowEntries(entries: string[] | undefined): string[] {
+  return (entries ?? []).map(normalizeAllowEntry).filter(Boolean);
+}
+
 function resolveMixinAllowFromPaths(
   rt: ReturnType<typeof getMixinRuntime>,
   accountId: string,
@@ -290,41 +298,21 @@ async function deliverMixinReply(params: {
   log: { info: (m: string) => void; warn: (m: string) => void; error: (m: string, e?: unknown) => void };
 }): Promise<void> {
   const { cfg, accountId, conversationId, recipientId, text, log } = params;
-  const plan = buildMixinReplyPlan(text);
-
-  if (!plan) {
+  const plan = buildMixinOutboundPlanFromReplyText(text);
+  if (plan.steps.length === 0) {
     return;
   }
-
-  if (plan.kind === "text") {
-    await sendTextMessage(cfg, accountId, conversationId, recipientId, plan.text, log);
-    return;
+  for (const warning of plan.warnings) {
+    log.warn(`[mixin] outbound plan warning: ${warning}`);
   }
-
-  if (plan.kind === "post") {
-    await sendPostMessage(cfg, accountId, conversationId, recipientId, plan.text, log);
-    return;
-  }
-
-  if (plan.kind === "file") {
-    await sendFileMessage(cfg, accountId, conversationId, recipientId, plan.file, log);
-    return;
-  }
-
-  if (plan.kind === "audio") {
-    await sendAudioMessage(cfg, accountId, conversationId, recipientId, plan.audio, log);
-    return;
-  }
-
-  if (plan.kind === "buttons") {
-    if (plan.intro) {
-      await sendTextMessage(cfg, accountId, conversationId, recipientId, plan.intro, log);
-    }
-    await sendButtonGroupMessage(cfg, accountId, conversationId, recipientId, plan.buttons, log);
-    return;
-  }
-
-  await sendCardMessage(cfg, accountId, conversationId, recipientId, plan.card, log);
+  await executeMixinOutboundPlan({
+    cfg,
+    accountId,
+    conversationId,
+    recipientId,
+    steps: plan.steps,
+    log,
+  });
 }
 
 async function handleUnauthorizedDirectMessage(params: {
@@ -384,6 +372,46 @@ async function handleUnauthorizedDirectMessage(params: {
       : `OpenClaw: access not configured.\n\nYour Mixin UUID: ${msg.userId}\n\nAsk the bot owner to add your Mixin UUID to channels.mixin.allowFrom.`;
     await sendTextMessage(cfg, accountId, msg.conversationId, msg.userId, reply, log);
   }
+}
+
+function evaluateMixinGroupAccess(params: {
+  cfg: OpenClawConfig;
+  config: MixinAccountConfig;
+  accountId: string;
+  conversationId: string;
+  senderId: string;
+}): {
+  allowed: boolean;
+  reason: string;
+  groupPolicy: "open" | "disabled" | "allowlist";
+  groupAllowFrom: string[];
+} {
+  const conversationPolicy = resolveConversationPolicy(params.cfg, params.accountId, params.conversationId);
+  if (!conversationPolicy.enabled) {
+    return {
+      allowed: false,
+      reason: "conversation disabled",
+      groupPolicy: "disabled",
+      groupAllowFrom: normalizeAllowEntries(conversationPolicy.groupAllowFrom),
+    };
+  }
+
+  const normalizedGroupAllowFrom = normalizeAllowEntries(conversationPolicy.groupAllowFrom);
+  const decision = evaluateSenderGroupAccess({
+    providerConfigPresent: true,
+    configuredGroupPolicy: conversationPolicy.groupPolicy,
+    defaultGroupPolicy: resolveDefaultGroupPolicy(params.cfg),
+    groupAllowFrom: normalizedGroupAllowFrom,
+    senderId: normalizeAllowEntry(params.senderId),
+    isSenderAllowed: (senderId, allowFrom) => allowFrom.includes(normalizeAllowEntry(senderId)),
+  });
+
+  return {
+    allowed: decision.allowed,
+    reason: decision.reason,
+    groupPolicy: decision.groupPolicy,
+    groupAllowFrom: normalizedGroupAllowFrom,
+  };
 }
 
 export async function handleMixinMessage(params: {
@@ -446,7 +474,19 @@ export async function handleMixinMessage(params: {
     return;
   }
 
-  if (!isDirect && !isAttachmentMessage && !shouldPassGroupFilter(config, text)) {
+  const conversationPolicy = isDirect
+    ? null
+    : resolveConversationPolicy(cfg, accountId, msg.conversationId);
+
+  if (
+    !isDirect &&
+    conversationPolicy &&
+    !(isAttachmentMessage && conversationPolicy.mediaBypassMention) &&
+    !shouldPassGroupFilter({
+      ...config,
+      requireMentionInGroup: conversationPolicy.requireMention,
+    }, text)
+  ) {
     log.info(`[mixin] group message filtered: ${msg.messageId}`);
     return;
   }
@@ -454,10 +494,27 @@ export async function handleMixinMessage(params: {
   const effectiveAllowFrom = await readEffectiveAllowFrom(rt, accountId, config.allowFrom, log);
   const normalizedUserId = normalizeAllowEntry(msg.userId);
   const dmPolicy = config.dmPolicy ?? "pairing";
-  const isAuthorized = dmPolicy === "open" || effectiveAllowFrom.has(normalizedUserId);
+  const groupAccess = isDirect
+    ? null
+    : evaluateMixinGroupAccess({
+      cfg,
+      config,
+      accountId,
+      conversationId: msg.conversationId,
+      senderId: msg.userId,
+    });
+  const isAuthorized = isDirect
+    ? dmPolicy === "open" || effectiveAllowFrom.has(normalizedUserId)
+    : groupAccess?.allowed === true;
 
   if (!isAuthorized) {
-    log.warn(`[mixin] user ${msg.userId} not authorized (dmPolicy=${dmPolicy})`);
+    if (isDirect) {
+      log.warn(`[mixin] user ${msg.userId} not authorized (dmPolicy=${dmPolicy})`);
+    } else {
+      log.warn(
+        `[mixin] group sender ${msg.userId} blocked: conversationId=${msg.conversationId}, groupPolicy=${groupAccess?.groupPolicy ?? "unknown"}, reason=${groupAccess?.reason ?? "unknown"}`,
+      );
+    }
     markProcessed(msg.messageId);
     if (isDirect) {
       await handleUnauthorizedDirectMessage({ rt, cfg, accountId, config, msg, log });
@@ -507,14 +564,18 @@ export async function handleMixinMessage(params: {
 
   const shouldComputeCommandAuthorized = rt.channel.commands.shouldComputeCommandAuthorized(text, cfg);
   const useAccessGroups = cfg.commands?.useAccessGroups !== false;
-  const senderAllowedForCommands = useAccessGroups ? effectiveAllowFrom.has(normalizedUserId) : true;
+  const senderAllowedForCommands = useAccessGroups
+    ? isDirect
+      ? effectiveAllowFrom.has(normalizedUserId)
+      : groupAccess?.allowed === true
+    : true;
 
   const commandAuthorized = shouldComputeCommandAuthorized
     ? rt.channel.commands.resolveCommandAuthorizedFromAuthorizers({
         useAccessGroups,
         authorizers: [
           {
-            configured: effectiveAllowFrom.size > 0,
+            configured: isDirect ? effectiveAllowFrom.size > 0 : (groupAccess?.groupAllowFrom.length ?? 0) > 0,
             allowed: senderAllowedForCommands,
           },
         ],

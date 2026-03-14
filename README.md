@@ -65,12 +65,19 @@ Edit your `openclaw.json` file manually and add both the channel configuration a
   "channels": {
     "mixin": {
       "enabled": true,
+      "defaultAccount": "default",
       "appId": "YOUR_APP_ID",
       "sessionId": "YOUR_SESSION_ID",
       "serverPublicKey": "YOUR_SERVER_PUBLIC_KEY_BASE64",
       "sessionPrivateKey": "YOUR_SESSION_PRIVATE_KEY_BASE64",
       "dmPolicy": "pairing",
       "allowFrom": ["AUTHORIZED_USER_UUID"],
+      "requireMentionInGroup": true,
+      "mediaBypassMentionInGroup": true,
+      "mediaMaxMb": 30,
+      "audioSendAsVoiceByDefault": true,
+      "audioAutoDetectDuration": true,
+      "audioRequireFfprobe": false,
       "proxy": {
         "enabled": true,
         "url": "socks5://127.0.0.1:10808",
@@ -141,13 +148,26 @@ Use `per-account-channel-peer` instead if you run multiple Mixin accounts and wa
 | Parameter | Required | Default | Description |
 |-----------|----------|---------|-------------|
 | `enabled` | No | `true` | Enable or disable this channel account |
+| `defaultAccount` | No | `default` | Default account ID used when `accounts` is configured |
 | `appId` | Yes | - | Mixin App UUID |
 | `sessionId` | Yes | - | Session UUID |
 | `serverPublicKey` | Yes | - | Server Public Key (Base64) |
 | `sessionPrivateKey` | Yes | - | Session Private Key (Ed25519 Base64) |
 | `dmPolicy` | No | `pairing` | Direct-message policy: `pairing`, `allowlist`, `open`, or `disabled` |
 | `allowFrom` | No | `[]` | Authorized user UUID whitelist |
+| `groupPolicy` | No | OpenClaw default | Group-message policy: `open`, `allowlist`, or `disabled` |
+| `groupAllowFrom` | No | `[]` | Authorized sender UUID whitelist for group messages when `groupPolicy` uses allowlisting |
 | `requireMentionInGroup` | No | `true` | Require trigger words in group chats |
+| `mediaBypassMentionInGroup` | No | `true` | Allow inbound group file/audio messages through even without trigger text |
+| `mediaMaxMb` | No | `30` | Max inbound and outbound media size in MB |
+| `audioSendAsVoiceByDefault` | No | `true` | Send OpenClaw native outbound audio as Mixin voice when possible |
+| `audioAutoDetectDuration` | No | `true` | Detect native outbound audio duration with `ffprobe` before sending voice |
+| `audioRequireFfprobe` | No | `false` | Fail native outbound audio instead of falling back to file when duration detection is unavailable |
+| `conversations.<conversationId>.enabled` | No | `true` | Enable or disable a specific group conversation |
+| `conversations.<conversationId>.requireMention` | No | Inherit account | Override group trigger-word requirement for a specific conversation |
+| `conversations.<conversationId>.allowFrom` | No | Inherit account | Override group sender allowlist for a specific conversation |
+| `conversations.<conversationId>.mediaBypassMention` | No | Inherit account | Override whether file/audio messages bypass mention filtering |
+| `conversations.<conversationId>.groupPolicy` | No | Inherit account | Override group policy for a specific conversation |
 | `debug` | No | `false` | Debug mode |
 | `proxy.enabled` | No | `false` | Enable per-plugin proxy |
 | `proxy.url` | Required when enabled | - | Proxy URL such as `http://127.0.0.1:7890` or `socks5://127.0.0.1:10808` |
@@ -159,6 +179,38 @@ Use `per-account-channel-peer` instead if you run multiple Mixin accounts and wa
 - Both Mixin HTTP requests and Blaze WebSocket traffic use the same proxy.
 - Supported proxy URL styles depend on the underlying proxy agent stack; typical values are `http://...`, `https://...`, and `socks5://...`.
 - You must provide your own proxy software or proxy server. The plugin only consumes a proxy, it does not create one.
+
+## Group Access Control
+
+Mixin now supports formal group access controls in addition to direct-message `dmPolicy`.
+
+- `groupPolicy: "open"` allows any sender in a group conversation.
+- `groupPolicy: "allowlist"` requires the sender UUID to appear in `groupAllowFrom`.
+- `groupPolicy: "disabled"` blocks the entire conversation.
+- `conversations.<conversationId>` overrides account-level group settings for that single conversation.
+
+Example:
+
+```json
+{
+  "channels": {
+    "mixin": {
+      "groupPolicy": "allowlist",
+      "groupAllowFrom": ["USER_A_UUID"],
+      "conversations": {
+        "70000000-0000-0000-0000-000000000001": {
+          "requireMention": false,
+          "allowFrom": ["USER_B_UUID"],
+          "mediaBypassMention": false
+        },
+        "70000000-0000-0000-0000-000000000002": {
+          "enabled": false
+        }
+      }
+    }
+  }
+}
+```
 
 ## Usage
 
@@ -181,6 +233,18 @@ Plugin-specific command:
 - Send `/mixin-outbox` to inspect the current pending queue size, next retry time, and latest error.
 - Send `/mixin-outbox purge-invalid` to remove old `APP_CARD` / `APP_BUTTON_GROUP` entries that are stuck on permanent invalid-field errors.
 
+Companion onboarding CLI:
+
+- This repository also includes a companion CLI at [tools/mixin-plugin-onboard/README.md](/E:/AI/mixin-claw/tools/mixin-plugin-onboard/README.md).
+- It is bundled into the same npm package, `@invago/mixin`.
+- It currently provides `info`, `doctor`, `install`, and `update` commands for local OpenClaw + Mixin plugin maintenance.
+- Local examples:
+  - `node --import jiti/register.js tools/mixin-plugin-onboard/src/index.ts info`
+  - `node --import jiti/register.js tools/mixin-plugin-onboard/src/index.ts doctor`
+- Installed package examples:
+  - `npx -y @invago/mixin info`
+  - `npx -y @invago/mixin doctor`
+
 ## Delivery and Retry Behavior
 
 - Outbound messages are persisted to a local outbox before send attempts.
@@ -193,13 +257,14 @@ Plugin-specific command:
 Current media behavior is split into outbound and inbound support:
 
 - OpenClaw native outbound media is enabled through the channel `sendMedia` path.
+- OpenClaw native `sendPayload` now uses the same Mixin outbound planner as buffered agent replies, so text/post/buttons/card/file/audio selection is consistent.
 - The plugin sends outbound audio as `PLAIN_AUDIO` when it can resolve the media as audio and detect duration.
 - If audio duration cannot be detected, the plugin falls back to regular file attachment sending.
 - Non-audio outbound media is sent as Mixin file attachments.
 - If OpenClaw sends both caption text and media, the plugin sends the text first and then the file.
 - Voice-bubble style outbound audio is currently intended for the explicit `mixin-audio` template path.
 - Inbound `PLAIN_DATA` and `PLAIN_AUDIO` messages are downloaded, saved locally, and attached to the OpenClaw inbound context through `MediaPath` / `MediaType`.
-- Group attachment messages are allowed through even when `requireMentionInGroup` is enabled.
+- Group attachment messages are allowed through even when `requireMentionInGroup` is enabled, unless `mediaBypassMentionInGroup` is set to `false`.
 
 Current limits:
 
@@ -297,6 +362,7 @@ Rules:
 - `mixin-file` and `mixin-audio` also accept JSON only.
 - `mixin-audio` requires `duration` in seconds. `waveForm` is optional.
 - `mixin-file` and `mixin-audio` require absolute local file paths on the machine where OpenClaw runs.
+- Invalid explicit `mixin-*` templates are no longer dropped silently; the plugin now sends a visible `Mixin template error: ...` message instead.
 - Button and card links must use `http://` or `https://`.
 - Mixin clients may require your target domains to be present in the bot app's `Resource Patterns` allowlist.
 

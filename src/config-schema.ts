@@ -1,4 +1,4 @@
-import { DmPolicySchema } from "openclaw/plugin-sdk";
+import { DmPolicySchema, GroupPolicySchema } from "openclaw/plugin-sdk";
 import { z } from "zod";
 
 export const MixinProxyConfigSchema = z.object({
@@ -22,6 +22,16 @@ export const MixinProxyConfigSchema = z.object({
 
 export type MixinProxyConfig = z.infer<typeof MixinProxyConfigSchema>;
 
+export const MixinConversationConfigSchema = z.object({
+  enabled: z.boolean().optional(),
+  requireMention: z.boolean().optional(),
+  allowFrom: z.array(z.string()).optional(),
+  mediaBypassMention: z.boolean().optional(),
+  groupPolicy: GroupPolicySchema.optional(),
+});
+
+export type MixinConversationConfig = z.infer<typeof MixinConversationConfigSchema>;
+
 export const MixinAccountConfigSchema = z.object({
   name: z.string().optional(),
   enabled: z.boolean().optional().default(true),
@@ -31,7 +41,15 @@ export const MixinAccountConfigSchema = z.object({
   sessionPrivateKey: z.string().optional(),
   dmPolicy: DmPolicySchema.optional().default("pairing"),
   allowFrom: z.array(z.string()).optional().default([]),
+  groupPolicy: GroupPolicySchema.optional(),
+  groupAllowFrom: z.array(z.string()).optional(),
   requireMentionInGroup: z.boolean().optional().default(true),
+  mediaBypassMentionInGroup: z.boolean().optional().default(true),
+  mediaMaxMb: z.number().positive().optional(),
+  audioAutoDetectDuration: z.boolean().optional().default(true),
+  audioSendAsVoiceByDefault: z.boolean().optional().default(true),
+  audioRequireFfprobe: z.boolean().optional().default(false),
+  conversations: z.record(z.string(), MixinConversationConfigSchema.optional()).optional(),
   debug: z.boolean().optional().default(false),
   proxy: MixinProxyConfigSchema.optional(),
 });
@@ -39,6 +57,7 @@ export const MixinAccountConfigSchema = z.object({
 export type MixinAccountConfig = z.infer<typeof MixinAccountConfigSchema>;
 
 export const MixinConfigSchema: z.ZodTypeAny = MixinAccountConfigSchema.extend({
+  defaultAccount: z.string().optional(),
   accounts: z.record(z.string(), MixinAccountConfigSchema.optional()).optional(),
 });
 

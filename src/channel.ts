@@ -1,13 +1,20 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { buildChannelConfigSchema, formatPairingApproveHint } from "openclaw/plugin-sdk";
+import {
+  buildChannelConfigSchema,
+  createDefaultChannelRuntimeState,
+  formatPairingApproveHint,
+  resolveChannelMediaMaxBytes,
+} from "openclaw/plugin-sdk";
 import type { ChannelGatewayContext, OpenClawConfig, ReplyPayload } from "openclaw/plugin-sdk";
 import { runBlazeLoop } from "./blaze-service.js";
 import { MixinConfigSchema } from "./config-schema.js";
-import { describeAccount, isConfigured, listAccountIds, resolveAccount } from "./config.js";
+import { describeAccount, isConfigured, listAccountIds, resolveAccount, resolveDefaultAccountId, resolveMediaMaxMb } from "./config.js";
 import { handleMixinMessage, type MixinInboundMessage } from "./inbound-handler.js";
+import { buildMixinOutboundPlanFromReplyPayload, executeMixinOutboundPlan } from "./outbound-plan.js";
 import { getMixinRuntime } from "./runtime.js";
-import { sendAudioMessage, sendFileMessage, sendTextMessage, startSendWorker } from "./send-service.js";
+import { getOutboxStatus, sendAudioMessage, sendFileMessage, sendTextMessage, startSendWorker } from "./send-service.js";
+import { buildMixinAccountSnapshot, buildMixinChannelSummary, resolveMixinStatusSnapshot } from "./status.js";
 
 type ResolvedMixinAccount = ReturnType<typeof resolveAccount>;
 
@@ -53,11 +60,12 @@ async function resolveAudioDurationSeconds(filePath: string): Promise<number | n
   }
 }
 
-function resolvePayloadMediaUrls(payload: ReplyPayload): string[] {
-  if (payload.mediaUrls && payload.mediaUrls.length > 0) {
-    return payload.mediaUrls;
-  }
-  return payload.mediaUrl ? [payload.mediaUrl] : [];
+function resolveMixinMediaMaxBytes(cfg: OpenClawConfig, accountId?: string | null): number {
+  return resolveChannelMediaMaxBytes({
+    cfg,
+    resolveChannelLimitMb: ({ cfg, accountId }) => resolveMediaMaxMb(cfg, accountId),
+    accountId,
+  }) ?? MEDIA_MAX_BYTES;
 }
 
 async function deliverOutboundMixinPayload(params: {
@@ -68,33 +76,28 @@ async function deliverOutboundMixinPayload(params: {
   mediaLocalRoots?: readonly string[];
   accountId?: string | null;
 }): Promise<{ channel: "mixin"; messageId: string }> {
-  const accountId = params.accountId ?? "default";
-  let lastMessageId = params.to;
-
-  if (params.text?.trim()) {
-    const textResult = await sendTextMessage(params.cfg, accountId, params.to, undefined, params.text);
-    if (!textResult.ok) {
-      throw new Error(textResult.error ?? "mixin outbound text send failed");
-    }
-    lastMessageId = textResult.messageId ?? lastMessageId;
-  }
-
+  const accountId = params.accountId ?? resolveDefaultAccountId(params.cfg);
+  const account = resolveAccount(params.cfg, accountId);
+  const mediaMaxBytes = resolveMixinMediaMaxBytes(params.cfg, accountId);
   const runtime = getMixinRuntime();
-  for (const mediaUrl of params.mediaUrls ?? []) {
+
+  const sendMediaUrl = async (mediaUrl: string): Promise<string | undefined> => {
     const loaded = await runtime.media.loadWebMedia(mediaUrl, {
-      maxBytes: MEDIA_MAX_BYTES,
+      maxBytes: mediaMaxBytes,
       localRoots: params.mediaLocalRoots,
     });
     const saved = await runtime.channel.media.saveMediaBuffer(
       loaded.buffer,
       loaded.contentType,
       "mixin",
-      MEDIA_MAX_BYTES,
+      mediaMaxBytes,
       loaded.fileName,
     );
 
-    if (loaded.kind === "audio") {
-      const duration = await resolveAudioDurationSeconds(saved.path);
+    if (loaded.kind === "audio" && account.config.audioSendAsVoiceByDefault !== false) {
+      const duration = account.config.audioAutoDetectDuration === false
+        ? null
+        : await resolveAudioDurationSeconds(saved.path);
       if (duration !== null) {
         const audioResult = await sendAudioMessage(
           params.cfg,
@@ -110,8 +113,10 @@ async function deliverOutboundMixinPayload(params: {
         if (!audioResult.ok) {
           throw new Error(audioResult.error ?? "mixin outbound audio send failed");
         }
-        lastMessageId = audioResult.messageId ?? lastMessageId;
-        continue;
+        return audioResult.messageId;
+      }
+      if (account.config.audioRequireFfprobe) {
+        throw new Error("ffprobe is required to send mediaUrl audio as Mixin voice");
       }
     }
 
@@ -129,10 +134,27 @@ async function deliverOutboundMixinPayload(params: {
     if (!fileResult.ok) {
       throw new Error(fileResult.error ?? "mixin outbound file send failed");
     }
-    lastMessageId = fileResult.messageId ?? lastMessageId;
+    return fileResult.messageId;
+  };
+
+  const payloadPlan = buildMixinOutboundPlanFromReplyPayload({
+    text: params.text,
+    mediaUrl: params.mediaUrls?.[0],
+    mediaUrls: params.mediaUrls,
+  } as ReplyPayload);
+  for (const warning of payloadPlan.warnings) {
+    console.warn(`[mixin] outbound plan warning: ${warning}`);
   }
 
-  return { channel: "mixin", messageId: lastMessageId };
+  const lastMessageId = await executeMixinOutboundPlan({
+    cfg: params.cfg,
+    accountId,
+    conversationId: params.to,
+    steps: payloadPlan.steps,
+    sendMediaUrl,
+  });
+
+  return { channel: "mixin", messageId: lastMessageId ?? params.to };
 }
 
 export const mixinPlugin = {
@@ -162,7 +184,7 @@ export const mixinPlugin = {
     listAccountIds,
     resolveAccount: (cfg: OpenClawConfig, accountId?: string | null) =>
       resolveAccount(cfg, accountId ?? undefined),
-    defaultAccountId: () => "default",
+    defaultAccountId: (cfg: OpenClawConfig) => resolveDefaultAccountId(cfg),
   },
 
   pairing: {
@@ -192,6 +214,7 @@ export const mixinPlugin = {
 
   outbound: {
     deliveryMode: "direct" as const,
+    textChunkLimit: 4000,
     sendPayload: async (ctx: {
       cfg: OpenClawConfig;
       to: string;
@@ -203,7 +226,11 @@ export const mixinPlugin = {
         cfg: ctx.cfg,
         to: ctx.to,
         text: ctx.payload.text,
-        mediaUrls: resolvePayloadMediaUrls(ctx.payload),
+        mediaUrls: ctx.payload.mediaUrls && ctx.payload.mediaUrls.length > 0
+          ? ctx.payload.mediaUrls
+          : ctx.payload.mediaUrl
+            ? [ctx.payload.mediaUrl]
+            : [],
         mediaLocalRoots: ctx.mediaLocalRoots,
         accountId: ctx.accountId,
       }),
@@ -214,7 +241,7 @@ export const mixinPlugin = {
       text: string;
       accountId?: string | null;
     }) => {
-      const id = ctx.accountId ?? "default";
+      const id = ctx.accountId ?? resolveDefaultAccountId(ctx.cfg);
       const result = await sendTextMessage(ctx.cfg, id, ctx.to, undefined, ctx.text);
       if (result.ok) {
         return { channel: "mixin", messageId: result.messageId ?? ctx.to };
@@ -251,6 +278,12 @@ export const mixinPlugin = {
       const config = account.config;
 
       await startSendWorker(cfg, log);
+      const outboxStatus = await getOutboxStatus().catch(() => null);
+      const statusSnapshot = resolveMixinStatusSnapshot(cfg, accountId, outboxStatus);
+      ctx.setStatus({
+        accountId,
+        ...statusSnapshot,
+      });
 
       let stopped = false;
       const stop = () => {
@@ -340,10 +373,43 @@ export const mixinPlugin = {
   },
 
   status: {
-    defaultRuntime: {
-      accountId: "default",
-      running: false,
-      status: "stopped" as const,
+    defaultRuntime: createDefaultChannelRuntimeState("default"),
+    buildChannelSummary: (params: {
+      snapshot: {
+        configured?: boolean | null;
+        running?: boolean | null;
+        lastStartAt?: number | null;
+        lastStopAt?: number | null;
+        lastError?: string | null;
+        defaultAccountId?: string | null;
+        outboxDir?: string | null;
+        outboxFile?: string | null;
+        outboxPending?: number | null;
+        mediaMaxMb?: number | null;
+      };
+    }) => buildMixinChannelSummary({ snapshot: params.snapshot }),
+    buildAccountSnapshot: (params: {
+      account: ResolvedMixinAccount;
+      runtime?: {
+        running?: boolean | null;
+        lastStartAt?: number | null;
+        lastStopAt?: number | null;
+        lastError?: string | null;
+        lastInboundAt?: number | null;
+        lastOutboundAt?: number | null;
+      } | null;
+      probe?: unknown;
+      cfg: OpenClawConfig;
+    }) => {
+      const { account, runtime, probe, cfg } = params;
+      const statusSnapshot = resolveMixinStatusSnapshot(cfg, account.accountId);
+      return buildMixinAccountSnapshot({
+        account,
+        runtime,
+        probe,
+        defaultAccountId: statusSnapshot.defaultAccountId,
+        outboxPending: statusSnapshot.outboxPending,
+      });
     },
   },
 };
