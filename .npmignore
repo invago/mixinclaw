@@ -8,3 +8,4 @@ dist/
 AGENTS.md
 package-lock.json
 .evomap-node.json
+docs/

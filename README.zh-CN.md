@@ -189,6 +189,31 @@ openclaw status
 - 插件重启后，未完成的消息仍会继续补发。
 - 入站 Blaze 消息会在分发前尽快 ACK，尽量减少 Mixin 的重复推送。
 
+## 媒体支持现状
+
+当前媒体能力分为发送侧和接收侧：
+
+- OpenClaw 原生媒体发送已经接入频道 `sendMedia`。
+- 当插件能把媒体识别为音频并成功拿到时长时，会优先按 `PLAIN_AUDIO` 发送。
+- 如果拿不到音频时长，会平稳降级为普通文件附件发送。
+- 非音频媒体会按 Mixin 文件附件发送。
+- 如果 OpenClaw 同时给出文本和媒体，插件会先发文本，再发文件。
+- 语音气泡式发送目前仍更适合走显式 `mixin-audio` 模板。
+- 入站 `PLAIN_DATA` 和 `PLAIN_AUDIO` 会被下载到本地，并通过 `MediaPath` / `MediaType` 挂到 OpenClaw 入站上下文。
+- 即使启用了 `requireMentionInGroup`，群里的附件消息也不会再因为缺少文本触发词被直接过滤。
+
+当前边界：
+
+- 发送语音时不做自动转码。
+- `mixin-audio` 仍要求你提供已经准备好的本地文件，并显式给出 `duration`，`waveForm` 可选。
+- OpenClaw 原生音频发送依赖本机可用的 `ffprobe` 来提取时长。
+- OpenClaw 原生 `sendMedia` 仍不会自动生成 `waveForm`，所以如果你想更稳定地控制语音消息效果，显式 `mixin-audio` 仍然是最稳妥的路径。
+- 是否能自动总结文件、转写语音，取决于你的 OpenClaw 媒体理解配置是否开启。
+
+联调手册：
+
+- 见 [docs/media-testing.zh-CN.md](docs/media-testing.zh-CN.md)。
+
 ## 显式回复模板
 
 如果你希望 Mixin 回复严格按指定形式发送，而不是依赖自动判断，可以让 agent 只输出一个 fenced code block 模板。
@@ -240,11 +265,39 @@ openclaw status
 ```
 ```
 
+文件：
+
+```text
+```mixin-file
+{
+  "filePath": "/absolute/path/to/report.pdf",
+  "fileName": "report.pdf",
+  "mimeType": "application/pdf"
+}
+```
+```
+
+语音：
+
+```text
+```mixin-audio
+{
+  "filePath": "/absolute/path/to/voice.ogg",
+  "mimeType": "audio/ogg",
+  "duration": 12,
+  "waveForm": "AAMMQQ=="
+}
+```
+```
+
 规则：
 
 - 显式模板优先级高于自动识别。
 - 回复里只要出现表格或 fenced code block，默认就会走 `mixin-post` 长文。
 - `mixin-buttons` 和 `mixin-card` 只接受 JSON。
+- `mixin-file` 和 `mixin-audio` 也只接受 JSON。
+- `mixin-file` 和 `mixin-audio` 里的 `filePath` 必须是 OpenClaw 所在机器上的绝对路径。
+- `mixin-audio` 里的 `duration` 必填，单位为秒，`waveForm` 可选。
 - 按钮和卡片链接必须使用 `http://` 或 `https://`。
 - Mixin 客户端可能要求目标域名已加入机器人应用的 `Resource Patterns` 白名单。
 

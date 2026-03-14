@@ -1,15 +1,20 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import type { OpenClawConfig } from "openclaw/plugin-sdk";
+import { MixinApi } from "@mixin.dev/mixin-node-sdk";
+import { buildAgentMediaPayload } from "openclaw/plugin-sdk";
+import type { AgentMediaPayload, OpenClawConfig } from "openclaw/plugin-sdk";
 import { getAccountConfig } from "./config.js";
 import type { MixinAccountConfig } from "./config-schema.js";
 import { decryptMixinMessage } from "./crypto.js";
+import { buildRequestConfig } from "./proxy.js";
 import { buildMixinReplyPlan } from "./reply-format.js";
 import { getMixinRuntime } from "./runtime.js";
 import {
+  sendAudioMessage,
   getOutboxStatus,
   purgePermanentInvalidOutboxEntries,
+  sendFileMessage,
   sendButtonGroupMessage,
   sendCardMessage,
   sendPostMessage,
@@ -29,8 +34,18 @@ export interface MixinInboundMessage {
 const processedMessages = new Set<string>();
 const MAX_DEDUP_SIZE = 2000;
 const unauthNotifiedUsers = new Map<string, number>();
+const loggedAllowFromAccounts = new Set<string>();
 const UNAUTH_NOTIFY_INTERVAL = 20 * 60 * 1000;
 const MAX_UNAUTH_NOTIFY_USERS = 1000;
+const INBOUND_MEDIA_MAX_BYTES = 30 * 1024 * 1024;
+
+type MixinAttachmentRequest = {
+  attachmentId: string;
+  mimeType?: string;
+  size?: number;
+  fileName?: string;
+  duration?: number;
+};
 
 function isProcessed(messageId: string): boolean {
   return processedMessages.has(messageId);
@@ -73,6 +88,116 @@ function decodeContent(category: string, data: string): string {
   return `[${category}]`;
 }
 
+function buildClient(config: MixinAccountConfig) {
+  return MixinApi({
+    keystore: {
+      app_id: config.appId!,
+      session_id: config.sessionId!,
+      server_public_key: config.serverPublicKey!,
+      session_private_key: config.sessionPrivateKey!,
+    },
+    requestConfig: buildRequestConfig(config.proxy),
+  });
+}
+
+function parseInboundAttachmentRequest(category: string, data: string): MixinAttachmentRequest | null {
+  if (category !== "PLAIN_DATA" && category !== "PLAIN_AUDIO") {
+    return null;
+  }
+
+  try {
+    const decoded = Buffer.from(data, "base64").toString("utf-8");
+    const parsed = JSON.parse(decoded) as {
+      attachment_id?: unknown;
+      mime_type?: unknown;
+      size?: unknown;
+      name?: unknown;
+      duration?: unknown;
+    };
+
+    if (typeof parsed.attachment_id !== "string" || !parsed.attachment_id.trim()) {
+      return null;
+    }
+
+    return {
+      attachmentId: parsed.attachment_id.trim(),
+      mimeType: typeof parsed.mime_type === "string" ? parsed.mime_type.trim() || undefined : undefined,
+      size: typeof parsed.size === "number" && Number.isFinite(parsed.size) ? parsed.size : undefined,
+      fileName: typeof parsed.name === "string" ? parsed.name.trim() || undefined : undefined,
+      duration: typeof parsed.duration === "number" && Number.isFinite(parsed.duration) ? parsed.duration : undefined,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function formatInboundAttachmentText(category: string, payload: MixinAttachmentRequest): string {
+  if (category === "PLAIN_AUDIO") {
+    const details = [
+      payload.fileName,
+      payload.mimeType,
+      typeof payload.duration === "number" ? `${payload.duration}s` : undefined,
+      typeof payload.size === "number" ? `${payload.size} bytes` : undefined,
+    ].filter(Boolean);
+    return details.length > 0 ? `[Mixin audio] ${details.join(" | ")}` : "[Mixin audio]";
+  }
+
+  const details = [
+    payload.fileName,
+    payload.mimeType,
+    typeof payload.size === "number" ? `${payload.size} bytes` : undefined,
+  ].filter(Boolean);
+  return details.length > 0 ? `[Mixin file] ${details.join(" | ")}` : "[Mixin file]";
+}
+
+async function resolveInboundAttachment(params: {
+  rt: ReturnType<typeof getMixinRuntime>;
+  config: MixinAccountConfig;
+  msg: MixinInboundMessage;
+  log: { info: (m: string) => void; warn: (m: string) => void; error: (m: string, e?: unknown) => void };
+}): Promise<{ text: string; mediaPayload?: AgentMediaPayload }> {
+  const payload = parseInboundAttachmentRequest(params.msg.category, params.msg.data);
+  if (!payload) {
+    return {
+      text: `[${params.msg.category}]`,
+    };
+  }
+
+  try {
+    const client = buildClient(params.config);
+    const attachment = await client.attachment.fetch(payload.attachmentId);
+    const fetched = await params.rt.channel.media.fetchRemoteMedia({
+      url: attachment.view_url,
+      filePathHint: payload.fileName,
+      maxBytes: INBOUND_MEDIA_MAX_BYTES,
+    });
+    const saved = await params.rt.channel.media.saveMediaBuffer(
+      fetched.buffer,
+      payload.mimeType ?? fetched.contentType,
+      "mixin",
+      INBOUND_MEDIA_MAX_BYTES,
+      payload.fileName ?? fetched.fileName,
+    );
+
+    return {
+      text: formatInboundAttachmentText(params.msg.category, payload),
+      mediaPayload: buildAgentMediaPayload([
+        {
+          path: saved.path,
+          contentType: saved.contentType ?? payload.mimeType ?? fetched.contentType,
+        },
+      ]),
+    };
+  } catch (err) {
+    params.log.warn(
+      `[mixin] failed to resolve inbound attachment: messageId=${params.msg.messageId}, category=${params.msg.category}, error=${err instanceof Error ? err.message : String(err)}`,
+    );
+    return {
+      text: formatInboundAttachmentText(params.msg.category, payload),
+    };
+  }
+}
+
 function shouldPassGroupFilter(config: MixinAccountConfig, text: string): boolean {
   if (!config.requireMentionInGroup) {
     return true;
@@ -111,9 +236,14 @@ function normalizeAllowEntry(entry: string): string {
   return entry.trim().toLowerCase();
 }
 
-function resolveMixinAllowFromPaths(accountId: string): string[] {
-  const openclawHome = process.env.OPENCLAW_HOME?.trim() || path.join(os.homedir(), ".openclaw");
-  const oauthDir = path.join(openclawHome, "credentials");
+function resolveMixinAllowFromPaths(
+  rt: ReturnType<typeof getMixinRuntime>,
+  accountId: string,
+): string[] {
+  const oauthOverride = process.env.OPENCLAW_OAUTH_DIR?.trim();
+  const oauthDir = oauthOverride
+    ? path.resolve(oauthOverride)
+    : path.join(rt.state.resolveStateDir(process.env, os.homedir), "credentials");
   const normalizedAccountId = accountId.trim().toLowerCase();
   const paths = [path.join(oauthDir, "mixin-allowFrom.json")];
   if (normalizedAccountId) {
@@ -138,9 +268,15 @@ async function readEffectiveAllowFrom(
   rt: ReturnType<typeof getMixinRuntime>,
   accountId: string,
   configAllowFrom: string[],
+  log?: { info: (m: string) => void },
 ): Promise<Set<string>> {
   const runtimeAllowFrom = await rt.channel.pairing.readAllowFromStore("mixin", undefined, accountId).catch(() => []);
-  const fileEntries = await Promise.all(resolveMixinAllowFromPaths(accountId).map((filePath) => readAllowFromFile(filePath)));
+  const filePaths = resolveMixinAllowFromPaths(rt, accountId);
+  if (!loggedAllowFromAccounts.has(accountId)) {
+    log?.info(`[mixin] allow-from paths: accountId=${accountId}, paths=${filePaths.join(", ")}`);
+    loggedAllowFromAccounts.add(accountId);
+  }
+  const fileEntries = await Promise.all(filePaths.map((filePath) => readAllowFromFile(filePath)));
   const fileAllowFrom = fileEntries.flat();
   return new Set([...configAllowFrom, ...runtimeAllowFrom, ...fileAllowFrom].map(normalizeAllowEntry).filter(Boolean));
 }
@@ -167,6 +303,16 @@ async function deliverMixinReply(params: {
 
   if (plan.kind === "post") {
     await sendPostMessage(cfg, accountId, conversationId, recipientId, plan.text, log);
+    return;
+  }
+
+  if (plan.kind === "file") {
+    await sendFileMessage(cfg, accountId, conversationId, recipientId, plan.file, log);
+    return;
+  }
+
+  if (plan.kind === "audio") {
+    await sendAudioMessage(cfg, accountId, conversationId, recipientId, plan.audio, log);
     return;
   }
 
@@ -279,24 +425,33 @@ export async function handleMixinMessage(params: {
     }
   }
 
-  if (!msg.category.startsWith("PLAIN_TEXT") && !msg.category.startsWith("PLAIN_POST")) {
+  const isTextMessage = msg.category.startsWith("PLAIN_TEXT") || msg.category.startsWith("PLAIN_POST");
+  const isAttachmentMessage = msg.category === "PLAIN_DATA" || msg.category === "PLAIN_AUDIO";
+
+  if (!isTextMessage && !isAttachmentMessage) {
     log.info(`[mixin] skip non-text message: ${msg.category}`);
     return;
   }
 
-  const text = decodeContent(msg.category, msg.data).trim();
+  let text = decodeContent(msg.category, msg.data).trim();
+  let mediaPayload: AgentMediaPayload | undefined;
+  if (isAttachmentMessage) {
+    const resolved = await resolveInboundAttachment({ rt, config, msg, log });
+    text = resolved.text.trim();
+    mediaPayload = resolved.mediaPayload;
+  }
   log.info(`[mixin] decoded text: messageId=${msg.messageId}, category=${msg.category}, length=${text.length}`);
 
   if (!text) {
     return;
   }
 
-  if (!isDirect && !shouldPassGroupFilter(config, text)) {
+  if (!isDirect && !isAttachmentMessage && !shouldPassGroupFilter(config, text)) {
     log.info(`[mixin] group message filtered: ${msg.messageId}`);
     return;
   }
 
-  const effectiveAllowFrom = await readEffectiveAllowFrom(rt, accountId, config.allowFrom);
+  const effectiveAllowFrom = await readEffectiveAllowFrom(rt, accountId, config.allowFrom, log);
   const normalizedUserId = normalizeAllowEntry(msg.userId);
   const dmPolicy = config.dmPolicy ?? "pairing";
   const isAuthorized = dmPolicy === "open" || effectiveAllowFrom.has(normalizedUserId);
@@ -378,6 +533,9 @@ export async function handleMixinMessage(params: {
     Surface: "mixin",
     MessageSid: msg.messageId,
     CommandAuthorized: commandAuthorized,
+    OriginatingChannel: "mixin",
+    OriginatingTo: isDirect ? msg.userId : msg.conversationId,
+    ...mediaPayload,
   });
 
   const storePath = rt.channel.session.resolveStorePath(cfg.session?.store, {

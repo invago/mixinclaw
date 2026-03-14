@@ -1,4 +1,4 @@
-import type { MixinButton, MixinCard } from "./send-service.js";
+import type { MixinAudio, MixinButton, MixinCard, MixinFile } from "./send-service.js";
 
 type LinkItem = {
   label: string;
@@ -8,6 +8,8 @@ type LinkItem = {
 export type MixinReplyPlan =
   | { kind: "text"; text: string }
   | { kind: "post"; text: string }
+  | { kind: "file"; file: MixinFile }
+  | { kind: "audio"; audio: MixinAudio }
   | { kind: "buttons"; intro?: string; buttons: MixinButton[] }
   | { kind: "card"; card: MixinCard };
 
@@ -15,7 +17,7 @@ const MAX_BUTTONS = 6;
 const MAX_BUTTON_LABEL = 36;
 const MAX_CARD_TITLE = 36;
 const MAX_CARD_DESCRIPTION = 120;
-const TEMPLATE_REGEX = /^```mixin-(text|post|buttons|card)\s*\n([\s\S]*?)\n```$/i;
+const TEMPLATE_REGEX = /^```mixin-(text|post|buttons|card|file|audio)\s*\n([\s\S]*?)\n```$/i;
 
 function truncate(value: string, limit: number): string {
   return value.length <= limit ? value : `${value.slice(0, Math.max(0, limit - 3))}...`;
@@ -121,6 +123,49 @@ function parseCardTemplate(body: string): MixinReplyPlan | null {
   };
 }
 
+function parseFileTemplate(body: string): MixinReplyPlan | null {
+  const parsed = parseJsonTemplate<MixinFile>(body);
+  if (!parsed || typeof parsed.filePath !== "string") {
+    return null;
+  }
+
+  const filePath = normalizeWhitespace(parsed.filePath);
+  if (!filePath) {
+    return null;
+  }
+
+  return {
+    kind: "file",
+    file: {
+      filePath,
+      fileName: typeof parsed.fileName === "string" ? normalizeWhitespace(parsed.fileName) : undefined,
+      mimeType: typeof parsed.mimeType === "string" ? normalizeWhitespace(parsed.mimeType) : undefined,
+    },
+  };
+}
+
+function parseAudioTemplate(body: string): MixinReplyPlan | null {
+  const parsed = parseJsonTemplate<MixinAudio>(body);
+  if (!parsed || typeof parsed.filePath !== "string" || typeof parsed.duration !== "number") {
+    return null;
+  }
+
+  const filePath = normalizeWhitespace(parsed.filePath);
+  if (!filePath || !Number.isFinite(parsed.duration) || parsed.duration <= 0) {
+    return null;
+  }
+
+  return {
+    kind: "audio",
+    audio: {
+      filePath,
+      duration: parsed.duration,
+      mimeType: typeof parsed.mimeType === "string" ? normalizeWhitespace(parsed.mimeType) : undefined,
+      waveForm: typeof parsed.waveForm === "string" ? normalizeWhitespace(parsed.waveForm) : undefined,
+    },
+  };
+}
+
 function parseExplicitTemplate(text: string): MixinReplyPlan | null {
   const match = text.match(TEMPLATE_REGEX);
   if (!match) {
@@ -144,6 +189,14 @@ function parseExplicitTemplate(text: string): MixinReplyPlan | null {
 
   if (templateType === "card") {
     return parseCardTemplate(body);
+  }
+
+  if (templateType === "file") {
+    return parseFileTemplate(body);
+  }
+
+  if (templateType === "audio") {
+    return parseAudioTemplate(body);
   }
 
   return null;

@@ -188,6 +188,31 @@ Plugin-specific command:
 - Pending messages survive plugin restarts.
 - Inbound Blaze messages are acknowledged before dispatch so Mixin receives a read receipt as early as possible.
 
+## Media Support
+
+Current media behavior is split into outbound and inbound support:
+
+- OpenClaw native outbound media is enabled through the channel `sendMedia` path.
+- The plugin sends outbound audio as `PLAIN_AUDIO` when it can resolve the media as audio and detect duration.
+- If audio duration cannot be detected, the plugin falls back to regular file attachment sending.
+- Non-audio outbound media is sent as Mixin file attachments.
+- If OpenClaw sends both caption text and media, the plugin sends the text first and then the file.
+- Voice-bubble style outbound audio is currently intended for the explicit `mixin-audio` template path.
+- Inbound `PLAIN_DATA` and `PLAIN_AUDIO` messages are downloaded, saved locally, and attached to the OpenClaw inbound context through `MediaPath` / `MediaType`.
+- Group attachment messages are allowed through even when `requireMentionInGroup` is enabled.
+
+Current limits:
+
+- Outbound audio does not transcode automatically.
+- `mixin-audio` still requires a prepared local file, explicit `duration`, and optional `waveForm`.
+- OpenClaw native outbound audio depends on local `ffprobe` availability to detect duration.
+- OpenClaw native `sendMedia` still does not generate `waveForm`, so explicit `mixin-audio` remains the most deterministic path for polished voice-message output.
+- Whether the agent can summarize, transcribe, or reason over inbound files/audio depends on your OpenClaw media-understanding configuration.
+
+Manual test guide:
+
+- See [docs/media-testing.md](docs/media-testing.md) for ready-to-run prompts and expected results.
+
 ## Explicit Reply Templates
 
 When you want deterministic Mixin output instead of heuristic auto-selection, have the agent reply with exactly one fenced template block.
@@ -239,11 +264,39 @@ Card:
 ```
 ```
 
+File:
+
+```text
+```mixin-file
+{
+  "filePath": "/absolute/path/to/report.pdf",
+  "fileName": "report.pdf",
+  "mimeType": "application/pdf"
+}
+```
+```
+
+Audio:
+
+```text
+```mixin-audio
+{
+  "filePath": "/absolute/path/to/voice.ogg",
+  "mimeType": "audio/ogg",
+  "duration": 12,
+  "waveForm": "AAMMQQ=="
+}
+```
+```
+
 Rules:
 
 - Explicit templates take priority over automatic detection.
 - Replies containing tables or fenced code blocks are sent as `mixin-post` by default.
 - `mixin-buttons` and `mixin-card` accept JSON only.
+- `mixin-file` and `mixin-audio` also accept JSON only.
+- `mixin-audio` requires `duration` in seconds. `waveForm` is optional.
+- `mixin-file` and `mixin-audio` require absolute local file paths on the machine where OpenClaw runs.
 - Button and card links must use `http://` or `https://`.
 - Mixin clients may require your target domains to be present in the bot app's `Resource Patterns` allowlist.
 

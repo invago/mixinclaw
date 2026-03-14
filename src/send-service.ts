@@ -1,18 +1,17 @@
+import crypto from "crypto";
+import { mkdir, readFile, rename, rm, stat, writeFile } from "fs/promises";
+import os from "os";
+import path from "path";
 import { MixinApi } from "@mixin.dev/mixin-node-sdk";
 import type { OpenClawConfig } from "openclaw/plugin-sdk";
 import type { MixinAccountConfig } from "./config-schema.js";
 import { getAccountConfig } from "./config.js";
 import { buildRequestConfig } from "./proxy.js";
-import crypto from "crypto";
-import { mkdir, readFile, rename, rm, stat, writeFile } from "fs/promises";
-import path from "path";
+import { getMixinRuntime } from "./runtime.js";
 
 const BASE_DELAY = 1000;
 const MAX_DELAY = 60_000;
 const MULTIPLIER = 1.5;
-const OUTBOX_DIR = path.join(process.cwd(), "data");
-const OUTBOX_FILE = path.join(OUTBOX_DIR, "mixin-outbox.json");
-const OUTBOX_TMP_FILE = `${OUTBOX_FILE}.tmp`;
 const MAX_ERROR_LENGTH = 500;
 const MAX_OUTBOX_FILE_BYTES = 10 * 1024 * 1024;
 
@@ -25,6 +24,8 @@ type SendLog = {
 export type MixinSupportedMessageCategory =
   | "PLAIN_TEXT"
   | "PLAIN_POST"
+  | "PLAIN_AUDIO"
+  | "PLAIN_DATA"
   | "APP_BUTTON_GROUP"
   | "APP_CARD";
 
@@ -42,6 +43,34 @@ export interface MixinCard {
   coverUrl?: string;
   iconUrl?: string;
   shareable?: boolean;
+}
+
+export interface MixinFile {
+  filePath: string;
+  fileName?: string;
+  mimeType?: string;
+}
+
+export interface MixinAudio {
+  filePath: string;
+  mimeType?: string;
+  duration: number;
+  waveForm?: string;
+}
+
+interface FileOutboxBody {
+  kind: "file";
+  filePath: string;
+  fileName: string;
+  mimeType: string;
+}
+
+interface AudioOutboxBody {
+  kind: "audio";
+  filePath: string;
+  mimeType: string;
+  duration: number;
+  waveForm?: string;
 }
 
 interface OutboxEntry {
@@ -93,6 +122,7 @@ const state: {
   log: SendLog;
   loaded: boolean;
   started: boolean;
+  outboxPathLogged: boolean;
   entries: OutboxEntry[];
   persistChain: Promise<void>;
   wakeRequested: boolean;
@@ -102,6 +132,7 @@ const state: {
   log: fallbackLog,
   loaded: false,
   started: false,
+  outboxPathLogged: false,
   entries: [],
   persistChain: Promise.resolve(),
   wakeRequested: false,
@@ -124,6 +155,32 @@ function buildClient(config: MixinAccountConfig) {
   });
 }
 
+function guessMimeType(fileName: string): string {
+  const ext = path.extname(fileName).toLowerCase();
+  switch (ext) {
+    case ".txt":
+      return "text/plain";
+    case ".md":
+      return "text/markdown";
+    case ".json":
+      return "application/json";
+    case ".pdf":
+      return "application/pdf";
+    case ".zip":
+      return "application/zip";
+    case ".csv":
+      return "text/csv";
+    case ".ogg":
+      return "audio/ogg";
+    case ".mp3":
+      return "audio/mpeg";
+    case ".wav":
+      return "audio/wav";
+    default:
+      return "application/octet-stream";
+  }
+}
+
 function computeNextDelay(attempts: number): number {
   return Math.min(BASE_DELAY * Math.pow(MULTIPLIER, Math.max(0, attempts)), MAX_DELAY);
 }
@@ -133,6 +190,44 @@ function updateRuntime(cfg: OpenClawConfig, log?: SendLog): void {
   if (log) {
     state.log = log;
   }
+}
+
+function resolveFallbackOutboxDir(env: NodeJS.ProcessEnv = process.env): string {
+  const stateOverride = env.OPENCLAW_STATE_DIR?.trim() || env.CLAWDBOT_STATE_DIR?.trim();
+  if (stateOverride) {
+    return path.join(stateOverride, "mixin");
+  }
+  const openClawHome = env.OPENCLAW_HOME?.trim();
+  if (openClawHome) {
+    return path.join(openClawHome, ".openclaw", "mixin");
+  }
+  return path.join(os.homedir(), ".openclaw", "mixin");
+}
+
+function resolveOutboxDir(): string {
+  try {
+    return path.join(getMixinRuntime().state.resolveStateDir(process.env, os.homedir), "mixin");
+  } catch (err) {
+    const fallbackDir = resolveFallbackOutboxDir();
+    state.log.warn(
+      `[mixin] failed to resolve OpenClaw state dir, falling back to ${fallbackDir}: ${err instanceof Error ? err.message : String(err)}`,
+    );
+    return fallbackDir;
+  }
+}
+
+function resolveOutboxPaths(): {
+  outboxDir: string;
+  outboxFile: string;
+  outboxTmpFile: string;
+} {
+  const outboxDir = resolveOutboxDir();
+  const outboxFile = path.join(outboxDir, "mixin-outbox.json");
+  return {
+    outboxDir,
+    outboxFile,
+    outboxTmpFile: `${outboxFile}.tmp`,
+  };
 }
 
 function normalizeErrorMessage(message: string): string {
@@ -171,17 +266,74 @@ function normalizeEntry(entry: OutboxEntry): OutboxEntry {
   };
 }
 
+function isStructuredBody(body: string): body is string {
+  return body.trim().startsWith("{");
+}
+
+function parseFileBody(body: string): FileOutboxBody {
+  const parsed = JSON.parse(body) as Partial<FileOutboxBody>;
+  if (parsed.kind !== "file" || !parsed.filePath || !parsed.fileName || !parsed.mimeType) {
+    throw new Error("invalid file outbox body");
+  }
+  return {
+    kind: "file",
+    filePath: String(parsed.filePath),
+    fileName: String(parsed.fileName),
+    mimeType: String(parsed.mimeType),
+  };
+}
+
+async function buildAttachmentPayload(
+  client: ReturnType<typeof buildClient>,
+  filePath: string,
+  fileName: string,
+  mimeType: string,
+): Promise<string> {
+  const buffer = await readFile(filePath);
+  const file = new File([buffer], fileName, { type: mimeType });
+  const uploaded = await client.attachment.upload(file);
+  const fileInfo = await stat(filePath);
+
+  return JSON.stringify({
+    attachment_id: uploaded.attachment_id,
+    mime_type: mimeType,
+    size: fileInfo.size,
+    name: fileName,
+  });
+}
+
+async function buildAudioAttachmentPayload(
+  client: ReturnType<typeof buildClient>,
+  body: AudioOutboxBody,
+): Promise<string> {
+  const fileName = path.basename(body.filePath);
+  const buffer = await readFile(body.filePath);
+  const file = new File([buffer], fileName, { type: body.mimeType });
+  const uploaded = await client.attachment.upload(file);
+  const fileInfo = await stat(body.filePath);
+
+  return JSON.stringify({
+    attachment_id: uploaded.attachment_id,
+    mime_type: body.mimeType,
+    size: fileInfo.size,
+    duration: body.duration,
+    wave_form: body.waveForm,
+  });
+}
+
 async function cleanupOutboxTmpFile(): Promise<void> {
+  const { outboxTmpFile } = resolveOutboxPaths();
   try {
-    await rm(OUTBOX_TMP_FILE, { force: true });
+    await rm(outboxTmpFile, { force: true });
   } catch (err) {
     state.log.warn(`[mixin] failed to remove stale outbox tmp file: ${err instanceof Error ? err.message : String(err)}`);
   }
 }
 
 async function warnIfOutboxFileTooLarge(): Promise<void> {
+  const { outboxFile } = resolveOutboxPaths();
   try {
-    const info = await stat(OUTBOX_FILE);
+    const info = await stat(outboxFile);
     if (info.size > MAX_OUTBOX_FILE_BYTES) {
       state.log.warn(`[mixin] outbox file is large: bytes=${info.size}, pending=${state.entries.length}`);
     }
@@ -198,11 +350,16 @@ async function ensureOutboxLoaded(): Promise<void> {
     return;
   }
 
-  await mkdir(OUTBOX_DIR, { recursive: true });
+  const { outboxDir, outboxFile } = resolveOutboxPaths();
+  if (!state.outboxPathLogged) {
+    state.log.info(`[mixin] outbox path: dir=${outboxDir}, file=${outboxFile}`);
+    state.outboxPathLogged = true;
+  }
+  await mkdir(outboxDir, { recursive: true });
   await cleanupOutboxTmpFile();
 
   try {
-    const raw = await readFile(OUTBOX_FILE, "utf-8");
+    const raw = await readFile(outboxFile, "utf-8");
     const parsed = JSON.parse(raw) as OutboxEntry[];
     state.entries = Array.isArray(parsed)
       ? parsed.map((entry) => normalizeEntry(entry))
@@ -228,10 +385,11 @@ function queuePersist(task: () => Promise<void>): Promise<void> {
 
 async function persistEntries(): Promise<void> {
   await queuePersist(async () => {
-    await mkdir(OUTBOX_DIR, { recursive: true });
+    const { outboxDir, outboxFile, outboxTmpFile } = resolveOutboxPaths();
+    await mkdir(outboxDir, { recursive: true });
     const payload = JSON.stringify(state.entries, null, 2);
-    await writeFile(OUTBOX_TMP_FILE, payload, "utf-8");
-    await rename(OUTBOX_TMP_FILE, OUTBOX_FILE);
+    await writeFile(outboxTmpFile, payload, "utf-8");
+    await rename(outboxTmpFile, outboxFile);
     await warnIfOutboxFileTooLarge();
   });
 }
@@ -296,6 +454,16 @@ async function attemptSend(entry: OutboxEntry): Promise<void> {
   }
 
   const client = buildClient(config);
+  let payloadBody = entry.body;
+  if (entry.category === "PLAIN_DATA" && isStructuredBody(entry.body)) {
+    const body = parseFileBody(entry.body);
+    payloadBody = await buildAttachmentPayload(client, body.filePath, body.fileName, body.mimeType);
+  } else if (entry.category === "PLAIN_AUDIO" && isStructuredBody(entry.body)) {
+    const body = JSON.parse(entry.body) as AudioOutboxBody;
+    payloadBody = await buildAudioAttachmentPayload(client, body);
+  }
+
+  const dataBase64 = Buffer.from(payloadBody).toString("base64");
   const messagePayload: {
     conversation_id: string;
     message_id: string;
@@ -306,7 +474,7 @@ async function attemptSend(entry: OutboxEntry): Promise<void> {
     conversation_id: entry.conversationId,
     message_id: entry.messageId,
     category: entry.category,
-    data_base64: Buffer.from(entry.body).toString("base64"),
+    data_base64: dataBase64,
   };
 
   if (entry.recipientId) {
@@ -459,6 +627,46 @@ export async function sendPostMessage(
   log?: SendLog,
 ): Promise<SendResult> {
   return sendMixinMessage(cfg, accountId, conversationId, recipientId, "PLAIN_POST", text, log);
+}
+
+export async function sendFileMessage(
+  cfg: OpenClawConfig,
+  accountId: string,
+  conversationId: string,
+  recipientId: string | undefined,
+  file: MixinFile,
+  log?: SendLog,
+): Promise<SendResult> {
+  const fileName = file.fileName?.trim() || path.basename(file.filePath);
+  const mimeType = file.mimeType?.trim() || guessMimeType(fileName);
+  const body = JSON.stringify({
+    kind: "file",
+    filePath: file.filePath,
+    fileName,
+    mimeType,
+  } satisfies FileOutboxBody);
+
+  return sendMixinMessage(cfg, accountId, conversationId, recipientId, "PLAIN_DATA", body, log);
+}
+
+export async function sendAudioMessage(
+  cfg: OpenClawConfig,
+  accountId: string,
+  conversationId: string,
+  recipientId: string | undefined,
+  audio: MixinAudio,
+  log?: SendLog,
+): Promise<SendResult> {
+  const mimeType = audio.mimeType?.trim() || guessMimeType(audio.filePath);
+  const body = JSON.stringify({
+    kind: "audio",
+    filePath: audio.filePath,
+    mimeType,
+    duration: audio.duration,
+    waveForm: audio.waveForm,
+  } satisfies AudioOutboxBody);
+
+  return sendMixinMessage(cfg, accountId, conversationId, recipientId, "PLAIN_AUDIO", body, log);
 }
 
 export async function sendButtonGroupMessage(

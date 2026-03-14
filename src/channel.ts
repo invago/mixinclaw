@@ -1,16 +1,21 @@
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { buildChannelConfigSchema, formatPairingApproveHint } from "openclaw/plugin-sdk";
-import type { ChannelGatewayContext, OpenClawConfig } from "openclaw/plugin-sdk";
+import type { ChannelGatewayContext, OpenClawConfig, ReplyPayload } from "openclaw/plugin-sdk";
 import { runBlazeLoop } from "./blaze-service.js";
 import { MixinConfigSchema } from "./config-schema.js";
 import { describeAccount, isConfigured, listAccountIds, resolveAccount } from "./config.js";
 import { handleMixinMessage, type MixinInboundMessage } from "./inbound-handler.js";
-import { sendTextMessage, startSendWorker } from "./send-service.js";
+import { getMixinRuntime } from "./runtime.js";
+import { sendAudioMessage, sendFileMessage, sendTextMessage, startSendWorker } from "./send-service.js";
 
 type ResolvedMixinAccount = ReturnType<typeof resolveAccount>;
 
 const BASE_DELAY = 1000;
 const MAX_DELAY = 3000;
 const MULTIPLIER = 1.5;
+const MEDIA_MAX_BYTES = 30 * 1024 * 1024;
+const execFileAsync = promisify(execFile);
 
 async function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -21,6 +26,113 @@ function maskKey(key: string): string {
     return "****";
   }
   return key.slice(0, 4) + "****" + key.slice(-4);
+}
+
+async function resolveAudioDurationSeconds(filePath: string): Promise<number | null> {
+  try {
+    const { stdout } = await execFileAsync(
+      process.platform === "win32" ? "ffprobe.exe" : "ffprobe",
+      [
+        "-v",
+        "error",
+        "-show_entries",
+        "format=duration",
+        "-of",
+        "default=noprint_wrappers=1:nokey=1",
+        filePath,
+      ],
+      { timeout: 15_000, windowsHide: true },
+    );
+    const seconds = Number.parseFloat(stdout.trim());
+    if (!Number.isFinite(seconds) || seconds <= 0) {
+      return null;
+    }
+    return Math.max(1, Math.ceil(seconds));
+  } catch {
+    return null;
+  }
+}
+
+function resolvePayloadMediaUrls(payload: ReplyPayload): string[] {
+  if (payload.mediaUrls && payload.mediaUrls.length > 0) {
+    return payload.mediaUrls;
+  }
+  return payload.mediaUrl ? [payload.mediaUrl] : [];
+}
+
+async function deliverOutboundMixinPayload(params: {
+  cfg: OpenClawConfig;
+  to: string;
+  text?: string;
+  mediaUrls?: string[];
+  mediaLocalRoots?: readonly string[];
+  accountId?: string | null;
+}): Promise<{ channel: "mixin"; messageId: string }> {
+  const accountId = params.accountId ?? "default";
+  let lastMessageId = params.to;
+
+  if (params.text?.trim()) {
+    const textResult = await sendTextMessage(params.cfg, accountId, params.to, undefined, params.text);
+    if (!textResult.ok) {
+      throw new Error(textResult.error ?? "mixin outbound text send failed");
+    }
+    lastMessageId = textResult.messageId ?? lastMessageId;
+  }
+
+  const runtime = getMixinRuntime();
+  for (const mediaUrl of params.mediaUrls ?? []) {
+    const loaded = await runtime.media.loadWebMedia(mediaUrl, {
+      maxBytes: MEDIA_MAX_BYTES,
+      localRoots: params.mediaLocalRoots,
+    });
+    const saved = await runtime.channel.media.saveMediaBuffer(
+      loaded.buffer,
+      loaded.contentType,
+      "mixin",
+      MEDIA_MAX_BYTES,
+      loaded.fileName,
+    );
+
+    if (loaded.kind === "audio") {
+      const duration = await resolveAudioDurationSeconds(saved.path);
+      if (duration !== null) {
+        const audioResult = await sendAudioMessage(
+          params.cfg,
+          accountId,
+          params.to,
+          undefined,
+          {
+            filePath: saved.path,
+            mimeType: saved.contentType ?? loaded.contentType,
+            duration,
+          },
+        );
+        if (!audioResult.ok) {
+          throw new Error(audioResult.error ?? "mixin outbound audio send failed");
+        }
+        lastMessageId = audioResult.messageId ?? lastMessageId;
+        continue;
+      }
+    }
+
+    const fileResult = await sendFileMessage(
+      params.cfg,
+      accountId,
+      params.to,
+      undefined,
+      {
+        filePath: saved.path,
+        fileName: loaded.fileName,
+        mimeType: saved.contentType ?? loaded.contentType,
+      },
+    );
+    if (!fileResult.ok) {
+      throw new Error(fileResult.error ?? "mixin outbound file send failed");
+    }
+    lastMessageId = fileResult.messageId ?? lastMessageId;
+  }
+
+  return { channel: "mixin", messageId: lastMessageId };
 }
 
 export const mixinPlugin = {
@@ -41,7 +153,7 @@ export const mixinPlugin = {
     chatTypes: ["direct", "group"] as Array<"direct" | "group">,
     reactions: false,
     threads: false,
-    media: false,
+    media: true,
     nativeCommands: false,
     blockStreaming: false,
   },
@@ -80,6 +192,21 @@ export const mixinPlugin = {
 
   outbound: {
     deliveryMode: "direct" as const,
+    sendPayload: async (ctx: {
+      cfg: OpenClawConfig;
+      to: string;
+      payload: ReplyPayload;
+      mediaLocalRoots?: readonly string[];
+      accountId?: string | null;
+    }) =>
+      deliverOutboundMixinPayload({
+        cfg: ctx.cfg,
+        to: ctx.to,
+        text: ctx.payload.text,
+        mediaUrls: resolvePayloadMediaUrls(ctx.payload),
+        mediaLocalRoots: ctx.mediaLocalRoots,
+        accountId: ctx.accountId,
+      }),
 
     sendText: async (ctx: {
       cfg: OpenClawConfig;
@@ -94,6 +221,22 @@ export const mixinPlugin = {
       }
       throw new Error(result.error ?? "sendText failed");
     },
+    sendMedia: async (ctx: {
+      cfg: OpenClawConfig;
+      to: string;
+      text: string;
+      mediaUrl?: string;
+      mediaLocalRoots?: readonly string[];
+      accountId?: string | null;
+    }) =>
+      deliverOutboundMixinPayload({
+        cfg: ctx.cfg,
+        to: ctx.to,
+        text: ctx.text,
+        mediaUrls: ctx.mediaUrl ? [ctx.mediaUrl] : [],
+        mediaLocalRoots: ctx.mediaLocalRoots,
+        accountId: ctx.accountId,
+      }),
   },
 
   gateway: {
