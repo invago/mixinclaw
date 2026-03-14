@@ -76,7 +76,6 @@ Edit your `openclaw.json` file manually and add both the channel configuration a
 {
   "channels": {
     "mixin": {
-      "enabled": true,
       "defaultAccount": "default",
       "appId": "YOUR_APP_ID",
       "sessionId": "YOUR_SESSION_ID",
@@ -169,7 +168,6 @@ Use `per-account-channel-peer` instead if you run multiple Mixin accounts and wa
 
 | Parameter | Required | Default | Description |
 |-----------|----------|---------|-------------|
-| `enabled` | No | `true` | Enable or disable this channel account |
 | `defaultAccount` | No | `default` | Default account ID used when `accounts` is configured |
 | `appId` | Yes | - | Mixin App UUID |
 | `sessionId` | Yes | - | Session UUID |
@@ -243,6 +241,30 @@ Example:
 }
 ```
 
+How to get these values:
+
+- `conversations.<conversationId>`: use the group's `conversation_id`. In practice, the easiest way is to let the group send a message to the bot once, then read the `conversationId` from the plugin logs or inbound event context. Mixin's conversation APIs also use the same `conversation_id` field for group conversations.
+- `groupAllowFrom` or `conversations.<conversationId>.allowFrom`: use the sender's Mixin `user_id` UUID. Mixin user IDs can be learned when the user messages the bot, adds the bot as a contact, or authorizes the application.
+- If you manage the group through Mixin APIs, the returned conversation payload also includes group participants with their `user_id` fields.
+
+Recommended operational approach:
+
+- Let the target group send one message to the bot
+- Copy the logged `conversationId`
+- Let the target member send one message, then copy that sender's `user_id`
+- Put those values into `conversations.<conversationId>` and `groupAllowFrom` / `allowFrom`
+
+Faster option:
+
+- Send `/mixin-whoami` directly in the target group
+- The plugin replies with the current `conversationId`, the current sender `user_id`, and a ready-to-copy config snippet
+
+Where to look in logs:
+
+- The plugin logs route resolution like `peer.kind=group, peer.id=<conversationId>`, which gives you the group `conversationId`
+- Unauthorized or filtered group logs include `group sender <user_id>` and `conversationId=<conversationId>`
+- If needed, temporarily enable a stricter group policy and let one member send a message once; the rejection log is often the fastest way to collect both values
+
 ## Usage
 
 - Direct message: `/status` or `Hello`
@@ -264,12 +286,13 @@ Plugin-specific command:
 
 - Send `/mixin-outbox` to inspect the current pending queue size, next retry time, and latest error.
 - Send `/mixin-outbox purge-invalid` to remove old `APP_CARD` / `APP_BUTTON_GROUP` entries that are stuck on permanent invalid-field errors.
+- Send `/mixin-whoami` in a direct chat or group chat to get the current `user_id`, current group `conversationId`, and a ready-to-copy config snippet.
 - Send `/collect status <orderId>` to refresh and inspect a stored MixPay collect order.
 - Send `/collect recent` or `/collect recent 10` to list recent MixPay collect orders for the current conversation.
 
 Companion onboarding CLI:
 
-- This repository also includes a companion CLI at [tools/mixin-plugin-onboard/README.md](/E:/AI/mixin-claw/tools/mixin-plugin-onboard/README.md).
+- This repository also includes a companion CLI at `tools/mixin-plugin-onboard/README.md`.
 - It is bundled into the same npm package, `@invago/mixin`.
 - It currently provides `info`, `doctor`, `install`, and `update` commands for local OpenClaw + Mixin plugin maintenance.
 - Local examples:
@@ -343,6 +366,41 @@ Rules:
 - `settlementAssetId`, `memo`, `orderId`, and `expireMinutes` are optional
 - Payment success is confirmed from MixPay server-side query results, not only from the client page
 - `mixpay.allowedCreators` can restrict who is allowed to create collect orders
+
+Where funds arrive:
+
+- For MixPay `Mixin account`, funds settle into the linked Mixin Wallet
+- For MixPay `Mixin Robot account`, funds settle into the linked Mixin Robot Wallet
+- Other MixPay account types settle into their own linked wallet types
+
+Recommended setup for this plugin:
+
+- Use a MixPay `Mixin account` or `Mixin Robot account`
+- Use that account's UUID as `mixpay.payeeId`
+- Set both `mixpay.defaultQuoteAssetId` and `mixpay.defaultSettlementAssetId` if you want templates to stay short
+
+How to get the required values:
+
+- `mixpay.payeeId`: get the UUID from the [MixPay Dashboard](https://dashboard.mixpay.me) settings page, or use the MixPay helper bot described in the official getting-started guide
+- `mixpay.defaultQuoteAssetId`: choose the asset ID you want to quote prices in
+- `mixpay.defaultSettlementAssetId`: choose the asset ID you want funds to settle into
+
+Minimal recommended config:
+
+```json
+{
+  "channels": {
+    "mixin": {
+      "mixpay": {
+        "enabled": true,
+        "payeeId": "YOUR_MIXPAY_UUID",
+        "defaultQuoteAssetId": "YOUR_QUOTE_ASSET_ID",
+        "defaultSettlementAssetId": "YOUR_SETTLEMENT_ASSET_ID"
+      }
+    }
+  }
+}
+```
 
 ## Explicit Reply Templates
 

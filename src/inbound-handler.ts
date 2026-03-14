@@ -219,6 +219,10 @@ function isOutboxPurgeInvalidCommand(text: string): boolean {
   return text.trim().toLowerCase() === "/mixin-outbox purge-invalid";
 }
 
+function isMixinWhoAmICommand(text: string): boolean {
+  return text.trim().toLowerCase() === "/mixin-whoami";
+}
+
 function isCollectStatusCommand(text: string): boolean {
   return /^\/collect\s+status\s+\S+/i.test(text.trim());
 }
@@ -256,6 +260,52 @@ function formatOutboxStatus(status: Awaited<ReturnType<typeof getOutboxStatus>>)
     }
   }
 
+  return lines.join("\n");
+}
+
+function formatMixinWhoAmI(params: {
+  isDirect: boolean;
+  accountId: string;
+  conversationId: string;
+  userId: string;
+}): string {
+  const lines = [
+    `Mixin accountId: ${params.accountId}`,
+    `Your user_id: ${params.userId}`,
+  ];
+
+  if (params.isDirect) {
+    lines.push("Chat type: direct");
+    lines.push("");
+    lines.push("Suggested config:");
+    lines.push("{");
+    lines.push('  "channels": {');
+    lines.push('    "mixin": {');
+    lines.push(`      "allowFrom": ["${params.userId}"]`);
+    lines.push("    }");
+    lines.push("  }");
+    lines.push("}");
+    return lines.join("\n");
+  }
+
+  lines.push("Chat type: group");
+  lines.push(`conversationId: ${params.conversationId}`);
+  lines.push("");
+  lines.push("Suggested config:");
+  lines.push("{");
+  lines.push('  "channels": {');
+  lines.push('    "mixin": {');
+  lines.push('      "groupPolicy": "allowlist",');
+  lines.push(`      "groupAllowFrom": ["${params.userId}"],`);
+  lines.push('      "conversations": {');
+  lines.push(`        "${params.conversationId}": {`);
+  lines.push('          "requireMention": false,');
+  lines.push(`          "allowFrom": ["${params.userId}"]`);
+  lines.push("        }");
+  lines.push("      }");
+  lines.push("    }");
+  lines.push("  }");
+  lines.push("}");
   return lines.join("\n");
 }
 
@@ -563,6 +613,18 @@ export async function handleMixinMessage(params: {
     const status = await getOutboxStatus();
     const replyText = formatOutboxStatus(status);
     const recipientId = isDirect ? msg.userId : undefined;
+    await sendTextMessage(cfg, accountId, msg.conversationId, recipientId, replyText, log);
+    return;
+  }
+
+  if (isMixinWhoAmICommand(text)) {
+    const recipientId = isDirect ? msg.userId : undefined;
+    const replyText = formatMixinWhoAmI({
+      isDirect,
+      accountId,
+      conversationId: msg.conversationId,
+      userId: msg.userId,
+    });
     await sendTextMessage(cfg, accountId, msg.conversationId, recipientId, replyText, log);
     return;
   }
