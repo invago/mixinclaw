@@ -7,7 +7,7 @@ import type { OpenClawConfig } from "openclaw/plugin-sdk";
 import type { MixinAccountConfig } from "./config-schema.js";
 import { getAccountConfig } from "./config.js";
 import { buildRequestConfig } from "./proxy.js";
-import { getMixinRuntime } from "./runtime.js";
+import { getMixinBlazeSender, getMixinRuntime } from "./runtime.js";
 
 const BASE_DELAY = 1000;
 const MAX_DELAY = 60_000;
@@ -475,6 +475,23 @@ async function attemptSend(entry: OutboxEntry): Promise<void> {
   }
 
   const dataBase64 = Buffer.from(payloadBody).toString("base64");
+  if (!entry.recipientId) {
+    const blazeSender = getMixinBlazeSender(entry.accountId);
+    if (!blazeSender) {
+      throw new Error("group send failed: blaze sender unavailable");
+    }
+    state.log.info(
+      `[mixin] attempt send: transport=blaze, jobId=${entry.jobId}, messageId=${entry.messageId}, conversation=${entry.conversationId}, recipient=none, category=${entry.category}`,
+    );
+    await blazeSender({
+      conversationId: entry.conversationId,
+      messageId: entry.messageId,
+      category: entry.category,
+      dataBase64,
+    });
+    return;
+  }
+
   const messagePayload: {
     conversation_id: string;
     message_id: string;
@@ -491,6 +508,10 @@ async function attemptSend(entry: OutboxEntry): Promise<void> {
   if (entry.recipientId) {
     messagePayload.recipient_id = entry.recipientId;
   }
+
+  state.log.info(
+    `[mixin] attempt send: transport=rest, jobId=${entry.jobId}, messageId=${entry.messageId}, conversation=${entry.conversationId}, recipient=${messagePayload.recipient_id ?? "none"}, category=${entry.category}`,
+  );
 
   await client.message.sendOne(messagePayload);
 }

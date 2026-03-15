@@ -164,6 +164,101 @@ Recommended configuration:
 
 Use `per-account-channel-peer` instead if you run multiple Mixin accounts and want direct-message sessions isolated by both channel and account.
 
+## Multi-Agent Routing Per Bot Account
+
+OpenClaw supports routing different channel accounts to different agents through `bindings[].match.accountId`.
+
+Recommended pattern:
+
+- One Mixin bot account = one `accountId`
+- One `accountId` = one agent binding
+- Keep session isolation at `per-account-channel-peer` when you run multiple bot accounts
+
+Example:
+
+```json
+{
+  "session": {
+    "dmScope": "per-account-channel-peer"
+  },
+  "agents": {
+    "list": [
+      {
+        "id": "main",
+        "workspace": "E:/AI/workspace-main",
+        "default": true
+      },
+      {
+        "id": "sales",
+        "workspace": "E:/AI/workspace-sales"
+      },
+      {
+        "id": "support",
+        "workspace": "E:/AI/workspace-support"
+      }
+    ]
+  },
+  "bindings": [
+    {
+      "agentId": "main",
+      "match": {
+        "channel": "mixin",
+        "accountId": "default"
+      }
+    },
+    {
+      "agentId": "sales",
+      "match": {
+        "channel": "mixin",
+        "accountId": "sales"
+      }
+    },
+    {
+      "agentId": "support",
+      "match": {
+        "channel": "mixin",
+        "accountId": "support"
+      }
+    }
+  ],
+  "channels": {
+    "mixin": {
+      "defaultAccount": "default",
+      "accounts": {
+        "default": {
+          "name": "Main Bot",
+          "appId": "APP_ID_1",
+          "sessionId": "SESSION_ID_1",
+          "serverPublicKey": "SERVER_PUBLIC_KEY_1",
+          "sessionPrivateKey": "SESSION_PRIVATE_KEY_1"
+        },
+        "sales": {
+          "name": "Sales Bot",
+          "appId": "APP_ID_2",
+          "sessionId": "SESSION_ID_2",
+          "serverPublicKey": "SERVER_PUBLIC_KEY_2",
+          "sessionPrivateKey": "SESSION_PRIVATE_KEY_2"
+        },
+        "support": {
+          "name": "Support Bot",
+          "appId": "APP_ID_3",
+          "sessionId": "SESSION_ID_3",
+          "serverPublicKey": "SERVER_PUBLIC_KEY_3",
+          "sessionPrivateKey": "SESSION_PRIVATE_KEY_3"
+        }
+      }
+    }
+  }
+}
+```
+
+Notes:
+
+- `match.accountId` binds one Mixin bot account to one agent.
+- If `accountId` is omitted in a binding, OpenClaw treats it as the default account only.
+- Use `accountId: "*"` only when you want one fallback agent for all Mixin accounts.
+- If you need one specific group or DM to override the account-level routing, add a more specific `match.peer` binding. Peer matches win over `accountId` matches.
+
 ## Configuration Reference
 
 | Parameter | Required | Default | Description |
@@ -177,7 +272,7 @@ Use `per-account-channel-peer` instead if you run multiple Mixin accounts and wa
 | `allowFrom` | No | `[]` | Authorized user UUID whitelist |
 | `groupPolicy` | No | OpenClaw default | Group-message policy: `open`, `allowlist`, or `disabled` |
 | `groupAllowFrom` | No | `[]` | Authorized sender UUID whitelist for group messages when `groupPolicy` uses allowlisting |
-| `requireMentionInGroup` | No | `true` | Require trigger words in group chats |
+| `requireMentionInGroup` | No | `true` | Apply plugin-side trigger-word filtering to group messages that have already been delivered to the bot |
 | `mediaBypassMentionInGroup` | No | `true` | Allow inbound group file/audio messages through even without trigger text |
 | `mediaMaxMb` | No | `30` | Max inbound and outbound media size in MB |
 | `audioSendAsVoiceByDefault` | No | `true` | Send OpenClaw native outbound audio as Mixin voice when possible |
@@ -218,6 +313,13 @@ Mixin now supports formal group access controls in addition to direct-message `d
 - `groupPolicy: "disabled"` blocks the entire conversation.
 - `conversations.<conversationId>` overrides account-level group settings for that single conversation.
 
+Important delivery boundary:
+
+- In practice, Mixin group bots reliably receive messages when the bot is explicitly mentioned.
+- `requireMentionInGroup: false` only disables this plugin's own post-delivery filtering.
+- It does not guarantee that Mixin will deliver every non-mention group message to the bot.
+- If a non-mention group message produces no read receipt and no inbound log, the message most likely was not delivered to the plugin by Mixin in the first place.
+
 Example:
 
 ```json
@@ -254,17 +356,14 @@ Recommended operational approach:
 - Let the target member send one message, then copy that sender's `user_id`
 - Put those values into `conversations.<conversationId>` and `groupAllowFrom` / `allowFrom`
 
-Faster option:
-
-- Send `/mixin-whoami` directly in the target group
-- The plugin replies with the current `conversationId`, the current sender `user_id`, and a ready-to-copy config snippet
-
 Pairing-style group authorization:
 
 - An unauthorized user can send `/mixin-group-auth` in the target group
-- The plugin replies with a temporary approval code for that `conversationId` + `user_id`
-- An already authorized operator can approve it with `/mixin-group-approve <code>`
-- Once approved, that sender is allowed in that specific group conversation without changing `openclaw.json`
+- The plugin replies with a temporary approval code for that `conversationId`
+- An operator must approve it in the OpenClaw terminal with `openclaw pairing approve mixin <code>`
+- For non-default accounts, use `openclaw pairing approve --account <accountId> mixin <code>`
+- Once approved, that entire group conversation is allowed without changing `openclaw.json`
+- Repeated `/mixin-group-auth` requests from the same unauthorized group are rate-limited to avoid spam
 
 Where to look in logs:
 
@@ -293,9 +392,9 @@ Plugin-specific command:
 
 - Send `/mixin-outbox` to inspect the current pending queue size, next retry time, and latest error.
 - Send `/mixin-outbox purge-invalid` to remove old `APP_CARD` / `APP_BUTTON_GROUP` entries that are stuck on permanent invalid-field errors.
-- Send `/mixin-whoami` in a direct chat or group chat to get the current `user_id`, current group `conversationId`, and a ready-to-copy config snippet.
 - Send `/mixin-group-auth` in a group to create a pending group-authorization request.
-- Send `/mixin-group-approve <code>` from an already authorized context to approve that pending group request.
+- Approve a pending group-authorization request in the OpenClaw terminal with `openclaw pairing approve mixin <code>`.
+- For non-default accounts, use `openclaw pairing approve --account <accountId> mixin <code>`.
 - Send `/collect status <orderId>` to refresh and inspect a stored MixPay collect order.
 - Send `/collect recent` or `/collect recent 10` to list recent MixPay collect orders for the current conversation.
 

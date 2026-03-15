@@ -164,6 +164,101 @@ Mixin 群聊本身会按频道隔离，但私聊会话是否独立，取决于 O
 
 如果你同时运行多个 Mixin 账号，并且希望私聊按“账号 + 频道”进一步隔离，可以改用 `per-account-channel-peer`。
 
+## 多机器人直绑不同 Agent
+
+OpenClaw 支持通过 `bindings[].match.accountId` 把不同的频道账号直接路由到不同 agent。
+
+推荐做法：
+
+- 一套 Mixin 机器人账号对应一个 `accountId`
+- 一个 `accountId` 对应一条 agent 绑定
+- 多账号场景下，`session.dmScope` 建议使用 `per-account-channel-peer`
+
+示例：
+
+```json
+{
+  "session": {
+    "dmScope": "per-account-channel-peer"
+  },
+  "agents": {
+    "list": [
+      {
+        "id": "main",
+        "workspace": "E:/AI/workspace-main",
+        "default": true
+      },
+      {
+        "id": "sales",
+        "workspace": "E:/AI/workspace-sales"
+      },
+      {
+        "id": "support",
+        "workspace": "E:/AI/workspace-support"
+      }
+    ]
+  },
+  "bindings": [
+    {
+      "agentId": "main",
+      "match": {
+        "channel": "mixin",
+        "accountId": "default"
+      }
+    },
+    {
+      "agentId": "sales",
+      "match": {
+        "channel": "mixin",
+        "accountId": "sales"
+      }
+    },
+    {
+      "agentId": "support",
+      "match": {
+        "channel": "mixin",
+        "accountId": "support"
+      }
+    }
+  ],
+  "channels": {
+    "mixin": {
+      "defaultAccount": "default",
+      "accounts": {
+        "default": {
+          "name": "Main Bot",
+          "appId": "APP_ID_1",
+          "sessionId": "SESSION_ID_1",
+          "serverPublicKey": "SERVER_PUBLIC_KEY_1",
+          "sessionPrivateKey": "SESSION_PRIVATE_KEY_1"
+        },
+        "sales": {
+          "name": "Sales Bot",
+          "appId": "APP_ID_2",
+          "sessionId": "SESSION_ID_2",
+          "serverPublicKey": "SERVER_PUBLIC_KEY_2",
+          "sessionPrivateKey": "SESSION_PRIVATE_KEY_2"
+        },
+        "support": {
+          "name": "Support Bot",
+          "appId": "APP_ID_3",
+          "sessionId": "SESSION_ID_3",
+          "serverPublicKey": "SERVER_PUBLIC_KEY_3",
+          "sessionPrivateKey": "SESSION_PRIVATE_KEY_3"
+        }
+      }
+    }
+  }
+}
+```
+
+说明：
+
+- `match.accountId` 用来把某一套 Mixin 机器人账号绑定到某个 agent。
+- 如果绑定里省略 `accountId`，OpenClaw 会把它当成默认账号的匹配。
+- 只有在你希望所有 Mixin 账号都走同一个兜底 agent 时，才使用 `accountId: "*"`。
+- 如果你还想让某个具体群或某个私聊覆盖账号级路由，可以再补更具体的 `match.peer` 绑定；`peer` 精确匹配优先级高于 `accountId`。
+
 ## 配置参数
 
 | 参数 | 必填 | 默认值 | 说明 |
@@ -177,7 +272,7 @@ Mixin 群聊本身会按频道隔离，但私聊会话是否独立，取决于 O
 | `allowFrom` | 否 | `[]` | 授权用户 UUID 白名单 |
 | `groupPolicy` | 否 | OpenClaw 默认值 | 群消息策略：`open`、`allowlist`、`disabled` |
 | `groupAllowFrom` | 否 | `[]` | 当 `groupPolicy` 使用 allowlist 时，允许触发群消息的发送者 UUID 白名单 |
-| `requireMentionInGroup` | 否 | `true` | 群聊是否要求触发词 |
+| `requireMentionInGroup` | 否 | `true` | 仅对已经投递到插件的群消息启用插件侧触发词过滤 |
 | `mediaBypassMentionInGroup` | 否 | `true` | 是否允许群里的文件/语音消息绕过文本触发词过滤 |
 | `mediaMaxMb` | 否 | `30` | 入站和出站媒体大小上限，单位 MB |
 | `audioSendAsVoiceByDefault` | 否 | `true` | OpenClaw 原生音频出站时尽量按 Mixin 语音发送 |
@@ -218,6 +313,13 @@ Mixin 群聊本身会按频道隔离，但私聊会话是否独立，取决于 O
 - `groupPolicy: "disabled"` 表示整个群会话被禁用。
 - `conversations.<conversationId>` 可以对某一个群会话覆盖账号级配置。
 
+关于群消息投递边界：
+
+- 目前从实际联调看，Mixin 群里稳定可用的触发方式仍然是显式 `@bot`。
+- `requireMentionInGroup: false` 只表示关闭插件自身的群消息二次过滤。
+- 它不能保证 Mixin 平台一定把所有未 `@` 的群消息投递给机器人。
+- 如果群里未 `@` 的消息既没有已读，也没有任何入站日志，通常说明这条消息根本没有被 Mixin 投递到插件。
+
 示例：
 
 ```json
@@ -256,15 +358,15 @@ Mixin 群聊本身会按频道隔离，但私聊会话是否独立，取决于 O
 
 更快的方式：
 
-- 直接在目标群发送 `/mixin-whoami`
-- 插件会返回当前 `conversationId`、当前发送者 `user_id`，以及一段可直接复制的配置示例
 
 类似 pairing 的群授权方式：
 
 - 未授权成员可以直接在目标群发送 `/mixin-group-auth`
-- 插件会返回一个针对当前 `conversationId + user_id` 的临时批准码
-- 已经授权的操作者可以用 `/mixin-group-approve <code>` 完成批准
-- 批准后，这个发送者会在当前群里生效，不需要手改 `openclaw.json`
+- 插件会返回一个针对当前 `conversationId` 的临时批准码
+- 管理员需要在 OpenClaw 终端执行 `openclaw pairing approve mixin <code>` 完成批准
+- 如果使用的是非默认账号，请执行 `openclaw pairing approve --account <accountId> mixin <code>`
+- 批准后，整个群会话都会生效，不需要手改 `openclaw.json`
+- 同一个未授权群反复发送 `/mixin-group-auth` 会被限频，避免刷屏
 
 日志里看哪里：
 
@@ -293,9 +395,9 @@ openclaw status
 
 - 发送 `/mixin-outbox` 可查看当前待发队列数量、下次重试时间和最新错误。
 - 发送 `/mixin-outbox purge-invalid` 可删除历史遗留的 `APP_CARD` / `APP_BUTTON_GROUP` 永久无效重试项。
-- 在私聊或群里发送 `/mixin-whoami`，插件会返回当前 `user_id`、当前群的 `conversationId`，以及一段可直接复制的配置片段。
 - 在目标群发送 `/mixin-group-auth`，可创建一条待批准的群授权请求。
-- 在已经授权的上下文发送 `/mixin-group-approve <code>`，可批准这条群授权请求。
+- 在 OpenClaw 终端执行 `openclaw pairing approve mixin <code>`，可批准这条群授权请求。
+- 如果使用的是非默认账号，请执行 `openclaw pairing approve --account <accountId> mixin <code>`。
 - 发送 `/collect status <orderId>` 可刷新并查看某个 MixPay 收款单状态。
 - 发送 `/collect recent` 或 `/collect recent 10` 可查看当前会话最近的 MixPay 收款单。
 

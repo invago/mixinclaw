@@ -7,7 +7,6 @@ import type { AgentMediaPayload, OpenClawConfig } from "openclaw/plugin-sdk";
 import { getAccountConfig, resolveConversationPolicy } from "./config.js";
 import type { MixinAccountConfig } from "./config-schema.js";
 import { decryptMixinMessage } from "./crypto.js";
-import { approveGroupAuthRequest, isGroupAuthApproved, upsertGroupAuthRequest } from "./group-auth-store.js";
 import { getMixpayOrderStatusText, getRecentMixpayOrdersText, refreshMixpayOrderStatus } from "./mixpay-worker.js";
 import { buildRequestConfig } from "./proxy.js";
 import { buildMixinOutboundPlanFromReplyText, executeMixinOutboundPlan } from "./outbound-plan.js";
@@ -31,10 +30,19 @@ export interface MixinInboundMessage {
 const processedMessages = new Set<string>();
 const MAX_DEDUP_SIZE = 2000;
 const unauthNotifiedUsers = new Map<string, number>();
+const unauthNotifiedGroups = new Map<string, number>();
 const loggedAllowFromAccounts = new Set<string>();
 const UNAUTH_NOTIFY_INTERVAL = 20 * 60 * 1000;
 const MAX_UNAUTH_NOTIFY_USERS = 1000;
+const MAX_UNAUTH_NOTIFY_GROUPS = 1000;
 const INBOUND_MEDIA_MAX_BYTES = 30 * 1024 * 1024;
+const USER_PROFILE_CACHE_TTL_MS = 10 * 60 * 1000;
+const MAX_USER_PROFILE_CACHE = 2000;
+
+type CachedUserProfile = {
+  fullName: string;
+  expiresAt: number;
+};
 
 type MixinAttachmentRequest = {
   attachmentId: string;
@@ -43,6 +51,8 @@ type MixinAttachmentRequest = {
   fileName?: string;
   duration?: number;
 };
+
+const cachedUserProfiles = new Map<string, CachedUserProfile>();
 
 function isProcessed(messageId: string): boolean {
   return processedMessages.has(messageId);
@@ -74,6 +84,22 @@ function pruneUnauthNotifiedUsers(now: number): void {
   }
 }
 
+function pruneUnauthNotifiedGroups(now: number): void {
+  for (const [conversationId, lastNotified] of unauthNotifiedGroups) {
+    if (now - lastNotified > UNAUTH_NOTIFY_INTERVAL) {
+      unauthNotifiedGroups.delete(conversationId);
+    }
+  }
+
+  while (unauthNotifiedGroups.size >= MAX_UNAUTH_NOTIFY_GROUPS) {
+    const first = unauthNotifiedGroups.keys().next().value;
+    if (!first) {
+      break;
+    }
+    unauthNotifiedGroups.delete(first);
+  }
+}
+
 function decodeContent(category: string, data: string): string {
   if (category.startsWith("PLAIN_TEXT") || category.startsWith("PLAIN_POST")) {
     try {
@@ -95,6 +121,63 @@ function buildClient(config: MixinAccountConfig) {
     },
     requestConfig: buildRequestConfig(config.proxy),
   });
+}
+
+function buildUserProfileCacheKey(accountId: string, userId: string): string {
+  return `${accountId}:${userId.trim().toLowerCase()}`;
+}
+
+function pruneUserProfileCache(now: number): void {
+  for (const [key, cached] of cachedUserProfiles) {
+    if (cached.expiresAt <= now) {
+      cachedUserProfiles.delete(key);
+    }
+  }
+
+  while (cachedUserProfiles.size >= MAX_USER_PROFILE_CACHE) {
+    const first = cachedUserProfiles.keys().next().value;
+    if (!first) {
+      break;
+    }
+    cachedUserProfiles.delete(first);
+  }
+}
+
+async function resolveSenderName(params: {
+  accountId: string;
+  config: MixinAccountConfig;
+  userId: string;
+  log: { info: (m: string) => void; warn: (m: string) => void; error: (m: string, e?: unknown) => void };
+}): Promise<string> {
+  const userId = params.userId.trim();
+  if (!userId) {
+    return "";
+  }
+
+  const now = Date.now();
+  const cacheKey = buildUserProfileCacheKey(params.accountId, userId);
+  const cached = cachedUserProfiles.get(cacheKey);
+  if (cached && cached.expiresAt > now) {
+    return cached.fullName;
+  }
+
+  pruneUserProfileCache(now);
+
+  try {
+    const client = buildClient(params.config);
+    const user = await client.user.fetch(userId);
+    const fullName = typeof user.full_name === "string" && user.full_name.trim() ? user.full_name.trim() : userId;
+    cachedUserProfiles.set(cacheKey, {
+      fullName,
+      expiresAt: now + USER_PROFILE_CACHE_TTL_MS,
+    });
+    return fullName;
+  } catch (err) {
+    params.log.warn(
+      `[mixin] failed to resolve sender profile: accountId=${params.accountId}, userId=${userId}, error=${err instanceof Error ? err.message : String(err)}`,
+    );
+    return userId;
+  }
 }
 
 function resolveInboundMediaMaxBytes(config: MixinAccountConfig): number {
@@ -220,46 +303,49 @@ function isOutboxCommand(text: string): boolean {
 }
 
 function isOutboxPurgeInvalidCommand(text: string): boolean {
-  return /(^|\s)\/mixin-outbox\s+purge-invalid(?:\s|$)/i.test(text.trim());
-}
-
-function isMixinWhoAmICommand(text: string): boolean {
-  return /(^|\s)\/mixin-whoami(?:\s|$)/i.test(text.trim());
+  return /(^|\s)\/mixin-outbox\s+purge-invalid(?:\s|$)/i.test(normalizeCommandText(text));
 }
 
 function isMixinGroupAuthCommand(text: string): boolean {
-  return /(^|\s)\/mixin-group-auth(?:\s|$)/i.test(text.trim());
+  return /(^|\s)\/mixin-group-auth(?:\s|$)/i.test(normalizeCommandText(text));
 }
 
 function isMixinGroupApproveCommand(text: string): boolean {
-  return /(^|\s)\/mixin-group-approve\s+\S+(?:\s|$)/i.test(text.trim());
+  return /(^|\s)\/mixin-group-approve\s+\S+(?:\s|$)/i.test(normalizeCommandText(text));
 }
 
 function parseMixinGroupApproveCode(text: string): string | null {
-  const match = text.trim().match(/(?:^|\s)\/mixin-group-approve\s+(\S+)(?:\s|$)/i);
+  const match = normalizeCommandText(text).match(/(?:^|\s)\/mixin-group-approve\s+(\S+)(?:\s|$)/i);
   return match?.[1]?.trim() || null;
 }
 
 function isCollectStatusCommand(text: string): boolean {
-  return /(^|\s)\/collect\s+status\s+\S+(?:\s|$)/i.test(text.trim());
+  return /(^|\s)\/collect\s+status\s+\S+(?:\s|$)/i.test(normalizeCommandText(text));
 }
 
 function isCollectRecentCommand(text: string): boolean {
-  return /(^|\s)\/collect\s+recent(?:\s+\d+)?(?:\s|$)/i.test(text.trim());
+  return /(^|\s)\/collect\s+recent(?:\s+\d+)?(?:\s|$)/i.test(normalizeCommandText(text));
 }
 
 function parseCollectStatusCommand(text: string): string | null {
-  const match = text.trim().match(/(?:^|\s)\/collect\s+status\s+(\S+)(?:\s|$)/i);
+  const match = normalizeCommandText(text).match(/(?:^|\s)\/collect\s+status\s+(\S+)(?:\s|$)/i);
   return match?.[1]?.trim() || null;
 }
 
 function parseCollectRecentLimit(text: string): number {
-  const match = text.trim().match(/(?:^|\s)\/collect\s+recent(?:\s+(\d+))?(?:\s|$)/i);
+  const match = normalizeCommandText(text).match(/(?:^|\s)\/collect\s+recent(?:\s+(\d+))?(?:\s|$)/i);
   const parsed = Number.parseInt(match?.[1] ?? "", 10);
   if (!Number.isFinite(parsed) || parsed <= 0) {
     return 5;
   }
   return Math.min(parsed, 20);
+}
+
+function normalizeCommandText(text: string): string {
+  return text
+    .replace(/[\u200B-\u200D\uFEFF]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function formatOutboxStatus(status: Awaited<ReturnType<typeof getOutboxStatus>>): string {
@@ -280,68 +366,40 @@ function formatOutboxStatus(status: Awaited<ReturnType<typeof getOutboxStatus>>)
   return lines.join("\n");
 }
 
-function formatMixinWhoAmI(params: {
-  isDirect: boolean;
-  accountId: string;
-  conversationId: string;
-  userId: string;
-}): string {
-  const lines = [
-    `Mixin accountId: ${params.accountId}`,
-    `Your user_id: ${params.userId}`,
-  ];
-
-  if (params.isDirect) {
-    lines.push("Chat type: direct");
-    lines.push("");
-    lines.push("Suggested config:");
-    lines.push("{");
-    lines.push('  "channels": {');
-    lines.push('    "mixin": {');
-    lines.push(`      "allowFrom": ["${params.userId}"]`);
-    lines.push("    }");
-    lines.push("  }");
-    lines.push("}");
-    return lines.join("\n");
-  }
-
-  lines.push("Chat type: group");
-  lines.push(`conversationId: ${params.conversationId}`);
-  lines.push("");
-  lines.push("Suggested config:");
-  lines.push("{");
-  lines.push('  "channels": {');
-  lines.push('    "mixin": {');
-  lines.push('      "groupPolicy": "allowlist",');
-  lines.push(`      "groupAllowFrom": ["${params.userId}"],`);
-  lines.push('      "conversations": {');
-  lines.push(`        "${params.conversationId}": {`);
-  lines.push('          "requireMention": false,');
-  lines.push(`          "allowFrom": ["${params.userId}"]`);
-  lines.push("        }");
-  lines.push("      }");
-  lines.push("    }");
-  lines.push("  }");
-  lines.push("}");
-  return lines.join("\n");
-}
-
 function formatMixinGroupAuthReply(params: {
   code: string;
   created: boolean;
   conversationId: string;
-  userId: string;
+  accountId: string;
 }): string {
   const lines = [
     params.created ? "Group auth request created." : "Group auth request already exists.",
     `Code: ${params.code}`,
     `conversationId: ${params.conversationId}`,
-    `user_id: ${params.userId}`,
     "",
-    "An authorized operator can approve it with:",
-    `/mixin-group-approve ${params.code}`,
+    "Approve it in the OpenClaw terminal with:",
+    params.accountId === "default"
+      ? `openclaw pairing approve mixin ${params.code}`
+      : `openclaw pairing approve --account ${params.accountId} mixin ${params.code}`,
   ];
   return lines.join("\n");
+}
+
+function buildGroupScopedPairingId(params: {
+  conversationId: string;
+}): string {
+  return `group:${params.conversationId.trim().toLowerCase()}`;
+}
+
+function buildGroupScopedPairingMeta(params: {
+  conversationId: string;
+  userId: string;
+}): Record<string, string> {
+  return {
+    kind: "group-auth",
+    conversationId: params.conversationId.trim(),
+    requestedBy: params.userId.trim(),
+  };
 }
 
 function normalizeAllowEntry(entry: string): string {
@@ -615,21 +673,34 @@ export async function handleMixinMessage(params: {
     });
   const groupPairingAuthorized = isDirect
     ? false
-    : await isGroupAuthApproved({
-      accountId,
+    : effectiveAllowFrom.has(normalizeAllowEntry(buildGroupScopedPairingId({
       conversationId: msg.conversationId,
-      userId: msg.userId,
-    });
+    })));
   const isAuthorized = isDirect
     ? dmPolicy === "open" || effectiveAllowFrom.has(normalizedUserId)
     : groupAccess?.allowed === true || groupPairingAuthorized;
 
   if (!isAuthorized) {
     if (!isDirect && isMixinGroupAuthCommand(text)) {
-      const { code, created } = await upsertGroupAuthRequest({
+      const now = Date.now();
+      const lastNotified = unauthNotifiedGroups.get(msg.conversationId) ?? 0;
+      const shouldNotify = lastNotified === 0 || now - lastNotified > UNAUTH_NOTIFY_INTERVAL;
+      if (!shouldNotify) {
+        markProcessed(msg.messageId);
+        return;
+      }
+      pruneUnauthNotifiedGroups(now);
+      unauthNotifiedGroups.set(msg.conversationId, now);
+      const { code, created } = await rt.channel.pairing.upsertPairingRequest({
+        channel: "mixin",
+        id: buildGroupScopedPairingId({
+          conversationId: msg.conversationId,
+        }),
         accountId,
-        conversationId: msg.conversationId,
-        userId: msg.userId,
+        meta: buildGroupScopedPairingMeta({
+          conversationId: msg.conversationId,
+          userId: msg.userId,
+        }),
       });
       markProcessed(msg.messageId);
       await sendTextMessage(
@@ -640,8 +711,8 @@ export async function handleMixinMessage(params: {
         formatMixinGroupAuthReply({
           code,
           created,
+          accountId,
           conversationId: msg.conversationId,
-          userId: msg.userId,
         }),
         log,
       );
@@ -681,28 +752,22 @@ export async function handleMixinMessage(params: {
     return;
   }
 
-  if (isMixinWhoAmICommand(text)) {
-    const recipientId = isDirect ? msg.userId : undefined;
-    const replyText = formatMixinWhoAmI({
-      isDirect,
-      accountId,
-      conversationId: msg.conversationId,
-      userId: msg.userId,
-    });
-    await sendTextMessage(cfg, accountId, msg.conversationId, recipientId, replyText, log);
-    return;
-  }
-
   if (isMixinGroupAuthCommand(text)) {
     const recipientId = isDirect ? msg.userId : undefined;
     if (isDirect) {
       await sendTextMessage(cfg, accountId, msg.conversationId, recipientId, "Use /mixin-group-auth in a group chat.", log);
       return;
     }
-    const { code, created } = await upsertGroupAuthRequest({
+    const { code, created } = await rt.channel.pairing.upsertPairingRequest({
+      channel: "mixin",
+      id: buildGroupScopedPairingId({
+        conversationId: msg.conversationId,
+      }),
       accountId,
-      conversationId: msg.conversationId,
-      userId: msg.userId,
+      meta: buildGroupScopedPairingMeta({
+        conversationId: msg.conversationId,
+        userId: msg.userId,
+      }),
     });
     await sendTextMessage(
       cfg,
@@ -712,8 +777,8 @@ export async function handleMixinMessage(params: {
       formatMixinGroupAuthReply({
         code,
         created,
+        accountId,
         conversationId: msg.conversationId,
-        userId: msg.userId,
       }),
       log,
     );
@@ -724,37 +789,23 @@ export async function handleMixinMessage(params: {
     const code = parseMixinGroupApproveCode(text);
     const recipientId = isDirect ? msg.userId : undefined;
     if (!code) {
-      await sendTextMessage(cfg, accountId, msg.conversationId, recipientId, "Usage: /mixin-group-approve <code>", log);
+      await sendTextMessage(cfg, accountId, msg.conversationId, recipientId, "Usage: openclaw pairing approve mixin <code>", log);
       return;
     }
-    const approved = await approveGroupAuthRequest({
-      code,
-      approvedBy: msg.userId,
-    });
-    if (!approved) {
-      await sendTextMessage(cfg, accountId, msg.conversationId, recipientId, `Group auth code not found: ${code}`, log);
-      return;
-    }
-    const approvalText = [
-      "Group auth approved.",
-      `conversationId: ${approved.conversationId}`,
-      `user_id: ${approved.userId}`,
-    ].join("\n");
-    await sendTextMessage(cfg, accountId, msg.conversationId, recipientId, approvalText, log);
-    if (isDirect || msg.conversationId !== approved.conversationId) {
-      await sendTextMessage(
-        cfg,
-        approved.accountId,
-        approved.conversationId,
-        undefined,
-        [
-          "Group auth approved.",
-          `user_id: ${approved.userId}`,
-          `approvedBy: ${approved.approvedBy}`,
-        ].join("\n"),
-        log,
-      );
-    }
+    await sendTextMessage(
+      cfg,
+      accountId,
+      msg.conversationId,
+      recipientId,
+      [
+        "Group auth approval must be done in the OpenClaw terminal.",
+        "",
+        accountId === "default"
+          ? `Run: openclaw pairing approve mixin ${code}`
+          : `Run: openclaw pairing approve --account ${accountId} mixin ${code}`,
+      ].join("\n"),
+      log,
+    );
     return;
   }
 
@@ -820,11 +871,20 @@ export async function handleMixinMessage(params: {
       })
     : undefined;
 
+  const senderName = await resolveSenderName({
+    accountId,
+    config,
+    userId: msg.userId,
+    log,
+  });
+
   const ctx = rt.channel.reply.finalizeInboundContext({
     Body: text,
     RawBody: text,
     CommandBody: text,
     From: isDirect ? msg.userId : msg.conversationId,
+    SenderId: msg.userId,
+    SenderName: senderName,
     SessionKey: route.sessionKey,
     AccountId: accountId,
     ChatType: isDirect ? "direct" : "group",

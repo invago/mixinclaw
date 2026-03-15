@@ -9,6 +9,7 @@ import WebSocket from "ws";
 import crypto from "crypto";
 import type { MixinAccountConfig } from "./config-schema.js";
 import { createProxyAgent } from "./proxy.js";
+import type { MixinBlazeOutboundMessage } from "./runtime.js";
 
 type SendLog = {
   info: (msg: string) => void;
@@ -50,8 +51,9 @@ export async function runBlazeLoop(params: {
   handler: BlazeHandler;
   log: SendLog;
   abortSignal?: AbortSignal;
+  onSenderReady?: ((sender: ((message: MixinBlazeOutboundMessage) => Promise<void>) | null) => void) | undefined;
 }): Promise<void> {
-  const { config, options, handler, log, abortSignal } = params;
+  const { config, options, handler, log, abortSignal, onSenderReady } = params;
   const keystore = buildKeystore(config);
   const jwtToken = signAccessToken("GET", "/", "", crypto.randomUUID(), keystore) || "";
   const agent = createProxyAgent(config.proxy);
@@ -67,6 +69,7 @@ export async function runBlazeLoop(params: {
         clearTimeout(pingTimeout);
         pingTimeout = null;
       }
+      onSenderReady?.(null);
       abortSignal?.removeEventListener("abort", onAbort);
     };
 
@@ -118,6 +121,25 @@ export async function runBlazeLoop(params: {
     ws.on("open", () => {
       opened = true;
       heartbeat();
+      onSenderReady?.(async (message) => {
+        if (!ws || ws.readyState !== WebSocket.OPEN) {
+          throw new Error("blaze sender unavailable: socket not open");
+        }
+        const ok = await sendRaw(ws, {
+          id: crypto.randomUUID(),
+          action: "CREATE_MESSAGE",
+          params: {
+            conversation_id: message.conversationId,
+            status: "SENT",
+            message_id: message.messageId,
+            category: message.category,
+            data: message.dataBase64,
+          },
+        });
+        if (!ok) {
+          throw new Error("blaze sender timeout");
+        }
+      });
       void sendRaw(ws!, {
         id: crypto.randomUUID(),
         action: "LIST_PENDING_MESSAGES",

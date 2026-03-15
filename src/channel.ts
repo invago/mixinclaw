@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { MixinApi } from "@mixin.dev/mixin-node-sdk";
+import { MixinApi, uniqueConversationID } from "@mixin.dev/mixin-node-sdk";
 import {
   buildChannelConfigSchema,
   createDefaultChannelRuntimeState,
@@ -16,7 +16,7 @@ import { handleMixinMessage, type MixinInboundMessage } from "./inbound-handler.
 import { getMixpayStatusSnapshot, startMixpayWorker } from "./mixpay-worker.js";
 import { buildMixinOutboundPlanFromReplyPayload, executeMixinOutboundPlan } from "./outbound-plan.js";
 import { buildRequestConfig } from "./proxy.js";
-import { getMixinRuntime } from "./runtime.js";
+import { getMixinRuntime, setMixinBlazeSender } from "./runtime.js";
 import { getOutboxStatus, sendAudioMessage, sendFileMessage, sendTextMessage, startSendWorker } from "./send-service.js";
 import { buildMixinAccountSnapshot, buildMixinChannelSummary, resolveMixinStatusSnapshot } from "./status.js";
 
@@ -60,6 +60,7 @@ function buildClient(config: MixinAccountConfig) {
 async function resolveIsDirectMessage(params: {
   config: MixinAccountConfig;
   conversationId?: string;
+  userId?: string;
   log: {
     info: (m: string) => void;
     warn: (m: string) => void;
@@ -72,6 +73,7 @@ async function resolveIsDirectMessage(params: {
 
   const cached = conversationCategoryCache.get(conversationId);
   if (cached && cached.expiresAt > Date.now()) {
+    params.log.info(`[mixin] conversation category resolved from cache: conversationId=${conversationId}, category=${cached.category}`);
     return cached.category !== "GROUP";
   }
 
@@ -83,8 +85,23 @@ async function resolveIsDirectMessage(params: {
       category,
       expiresAt: Date.now() + CONVERSATION_CATEGORY_CACHE_TTL_MS,
     });
+    params.log.info(`[mixin] conversation category resolved: conversationId=${conversationId}, category=${category}`);
     return category !== "GROUP";
   } catch (err) {
+    const userId = params.userId?.trim();
+    if (userId && params.config.appId) {
+      const directConversationId = uniqueConversationID(params.config.appId, userId);
+      if (directConversationId === conversationId) {
+        params.log.info(
+          `[mixin] conversation category inferred locally: conversationId=${conversationId}, category=CONTACT`,
+        );
+        conversationCategoryCache.set(conversationId, {
+          category: "CONTACT",
+          expiresAt: Date.now() + CONVERSATION_CATEGORY_CACHE_TTL_MS,
+        });
+        return true;
+      }
+    }
     params.log.warn(
       `[mixin] failed to resolve conversation category: conversationId=${conversationId}, error=${err instanceof Error ? err.message : String(err)}`,
     );
@@ -347,6 +364,7 @@ export const mixinPlugin = {
       let stopped = false;
       const stop = () => {
         stopped = true;
+        setMixinBlazeSender(accountId, null);
       };
       abortSignal?.addEventListener("abort", stop);
 
@@ -364,6 +382,9 @@ export const mixinPlugin = {
               options: { parse: false, syncAck: true },
               log,
               abortSignal,
+              onSenderReady: (sender) => {
+                setMixinBlazeSender(accountId, sender);
+              },
               handler: {
                 onMessage: async (rawMsg: any) => {
                   if (stopped) {
@@ -379,8 +400,12 @@ export const mixinPlugin = {
                   const isDirect = await resolveIsDirectMessage({
                     config,
                     conversationId: rawMsg.conversation_id,
+                    userId: rawMsg.user_id,
                     log,
                   });
+                  log.info(
+                    `[mixin] inbound route context: messageId=${rawMsg.message_id}, conversationId=${rawMsg.conversation_id ?? ""}, userId=${rawMsg.user_id}, isDirect=${isDirect}`,
+                  );
 
                   const msg: MixinInboundMessage = {
                     conversationId: rawMsg.conversation_id ?? "",
