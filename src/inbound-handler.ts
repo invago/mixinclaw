@@ -1,9 +1,8 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { createRequire } from "node:module";
-import { pathToFileURL } from "node:url";
 import { MixinApi } from "@mixin.dev/mixin-node-sdk";
+import { loadSessionStore, saveSessionStore } from "openclaw";
 import { buildAgentMediaPayload, evaluateSenderGroupAccess, resolveDefaultGroupPolicy } from "openclaw/plugin-sdk";
 import type { AgentMediaPayload, OpenClawConfig } from "openclaw/plugin-sdk";
 import { getAccountConfig, resolveConversationPolicy } from "./config.js";
@@ -44,7 +43,6 @@ const GROUP_PROFILE_CACHE_TTL_MS = 10 * 60 * 1000;
 const MAX_GROUP_PROFILE_CACHE = 1000;
 const BOT_PROFILE_CACHE_TTL_MS = 10 * 60 * 1000;
 const SESSION_LABEL_MAX_LENGTH = 64;
-const requireFromHere = createRequire(import.meta.url);
 
 type CachedUserProfile = {
   fullName: string;
@@ -72,10 +70,6 @@ type MixinAttachmentRequest = {
 const cachedUserProfiles = new Map<string, CachedUserProfile>();
 const cachedGroupProfiles = new Map<string, CachedGroupProfile>();
 const cachedBotProfiles = new Map<string, CachedBotProfile>();
-let cachedUpdateSessionStore:
-  | ((storePath: string, mutator: (store: Record<string, Record<string, unknown>>) => void | Promise<void>) => Promise<unknown>)
-  | null
-  | undefined;
 
 function isProcessed(messageId: string): boolean {
   return processedMessages.has(messageId);
@@ -225,60 +219,6 @@ function clampSessionLabel(label: string): string {
   return sliceUtf16Safe(trimmed, SESSION_LABEL_MAX_LENGTH);
 }
 
-async function loadUpdateSessionStore(log: {
-  info: (m: string) => void;
-  warn: (m: string) => void;
-  error: (m: string, e?: unknown) => void;
-}): Promise<
-  ((storePath: string, mutator: (store: Record<string, Record<string, unknown>>) => void | Promise<void>) => Promise<unknown>) | null
-> {
-  if (cachedUpdateSessionStore !== undefined) {
-    return cachedUpdateSessionStore;
-  }
-
-  try {
-    const openclawEntryPath = requireFromHere.resolve("openclaw");
-    const openclawEntryDir = path.dirname(openclawEntryPath);
-    const distDir = path.basename(openclawEntryDir).toLowerCase() === "dist" ? openclawEntryDir : path.join(openclawEntryDir, "dist");
-
-    const entries = await fs.readdir(distDir, { withFileTypes: true });
-    const sessionModules = entries
-      .filter((entry) => entry.isFile() && /^sessions-.*\.js$/i.test(entry.name))
-      .map((entry) => entry.name)
-      .sort();
-    if (!sessionModules.length) {
-      cachedUpdateSessionStore = null;
-      return null;
-    }
-
-    for (const sessionModule of sessionModules) {
-      try {
-        const moduleUrl = pathToFileURL(path.join(distDir, sessionModule)).href;
-        const imported = (await import(moduleUrl)) as Record<string, unknown>;
-        const updateSessionStore = imported.h;
-        if (typeof updateSessionStore === "function") {
-          cachedUpdateSessionStore = updateSessionStore as (
-            storePath: string,
-            mutator: (store: Record<string, Record<string, unknown>>) => void | Promise<void>,
-          ) => Promise<unknown>;
-          return cachedUpdateSessionStore;
-        }
-      } catch {
-        continue;
-      }
-    }
-
-    cachedUpdateSessionStore = null;
-    return null;
-  } catch (err) {
-    log.warn(
-      `[mixin] failed to load OpenClaw session store updater: error=${err instanceof Error ? err.message : String(err)}`,
-    );
-    cachedUpdateSessionStore = null;
-    return null;
-  }
-}
-
 async function resolveSenderName(params: {
   accountId: string;
   config: MixinAccountConfig;
@@ -403,29 +343,28 @@ async function updateSessionPresentation(params: {
   }
 
   try {
-    const updateSessionStore = await loadUpdateSessionStore(params.log);
-    if (!updateSessionStore) {
+    const store = loadSessionStore(params.storePath, { skipCache: true }) as Record<string, Record<string, unknown>>;
+    const entry = store[params.sessionKey];
+    if (!entry || typeof entry !== "object") {
       return;
     }
-    await updateSessionStore(params.storePath, (store: Record<string, Record<string, unknown>>) => {
-      const entry = store[params.sessionKey];
-      if (!entry || typeof entry !== "object") {
-        return;
-      }
 
-      let changed = false;
-      if (nextLabel && entry.label !== nextLabel) {
-        entry.label = nextLabel;
-        changed = true;
-      }
-      if (nextDisplayName && entry.displayName !== nextDisplayName) {
-        entry.displayName = nextDisplayName;
-        changed = true;
-      }
-      if (changed) {
-        entry.updatedAt = new Date().toISOString();
-      }
-    });
+    let changed = false;
+    if (nextLabel && entry.label !== nextLabel) {
+      entry.label = nextLabel;
+      changed = true;
+    }
+    if (nextDisplayName && entry.displayName !== nextDisplayName) {
+      entry.displayName = nextDisplayName;
+      changed = true;
+    }
+    if (!changed) {
+      return;
+    }
+
+    const updatedAtMs = Date.now();
+    entry.updatedAt = updatedAtMs;
+    await saveSessionStore(params.storePath, store, { activeSessionKey: params.sessionKey });
   } catch (err) {
     params.log.warn(
       `[mixin] failed to update session presentation: sessionKey=${params.sessionKey}, error=${err instanceof Error ? err.message : String(err)}`,
