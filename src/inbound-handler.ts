@@ -1183,7 +1183,7 @@ export async function handleMixinMessage(params: {
     storePath,
     sessionKey: route.sessionKey,
     label: conversationLabel,
-    displayName: isDirect ? undefined : conversationLabel,
+    displayName: conversationLabel,
     log,
   });
 
