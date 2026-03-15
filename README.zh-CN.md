@@ -513,6 +513,32 @@ Mixin 现在已经支持通过 MixPay one-time payment 做收款。
 }
 ```
 
+配置放在哪里：
+
+- 单账号场景：把 `mixpay` 放在 `channels.mixin.mixpay`
+- 多账号场景：把 `mixpay` 放在 `channels.mixin.accounts.<accountId>.mixpay`
+- `mixpay` 是账号级配置，所以不同的 Mixin 机器人账号可以使用不同的 MixPay 设置
+
+字段说明：
+
+- `mixpay.enabled`：是否为当前这套 Mixin 账号启用 MixPay 收款
+- `mixpay.apiBaseUrl`：可选的 MixPay API 基础地址；通常留空即可，默认走官方接口
+- `mixpay.payeeId`：真正收款的 MixPay 收款方 UUID；启用 MixPay 收款时必填
+- `mixpay.defaultQuoteAssetId`：默认报价资产 ID；配置后，`mixin-collect` 模板里的 `assetId` 可以省略
+- `mixpay.defaultSettlementAssetId`：默认结算资产 ID；决定订单优先结算到哪种资产
+- `mixpay.expireMinutes`：新建收款单的默认过期时间，单位分钟
+- `mixpay.pollIntervalSec`：后台轮询待支付订单的间隔，单位秒；越小越快发现支付结果，但会产生更多 MixPay API 请求
+- `mixpay.allowedCreators`：可选的发送者 UUID 白名单；当这个列表非空时，只有这些用户可以在聊天里创建收款单
+- `mixpay.notifyOnPending`：当 MixPay 返回 `pending` 时，是否在会话里发送状态通知
+- `mixpay.notifyOnPaidLess`：当 MixPay 返回少付状态时，是否在会话里发送状态通知
+
+实用建议：
+
+- 如果你只想先配出最小可用集，建议至少填写 `enabled`、`payeeId`、`defaultQuoteAssetId`、`defaultSettlementAssetId`
+- 如果你不希望授权会话里的所有人都能创建收款单，就配置 `allowedCreators`
+- 如果你没有自建 MixPay 网关，`apiBaseUrl` 保持留空即可
+- 如果你不想在聊天里看到太多中间态通知，保持 `notifyOnPending: false` 即可
+
 ## 显式回复模板
 
 如果你希望 Mixin 回复严格按指定形式发送，而不是依赖自动判断，可以让 agent 只输出一个 fenced code block 模板。

@@ -510,6 +510,32 @@ Minimal recommended config:
 }
 ```
 
+Where to put it:
+
+- Single-account setup: put `mixpay` under `channels.mixin.mixpay`
+- Multi-account setup: put it under `channels.mixin.accounts.<accountId>.mixpay`
+- `mixpay` is account-scoped, so different Mixin bot accounts can use different MixPay settings
+
+Field reference:
+
+- `mixpay.enabled`: enable MixPay collect support for this Mixin account
+- `mixpay.apiBaseUrl`: optional custom MixPay API base URL; normally leave it empty and use the default official endpoint
+- `mixpay.payeeId`: the MixPay payee/merchant UUID that actually receives the funds; required when MixPay collect is enabled
+- `mixpay.defaultQuoteAssetId`: default quoted asset ID; when set, `mixin-collect` can omit `assetId`
+- `mixpay.defaultSettlementAssetId`: default settlement asset ID; controls which asset the order prefers to settle into
+- `mixpay.expireMinutes`: default expiration time for newly created collect orders
+- `mixpay.pollIntervalSec`: background polling interval for pending orders; shorter values detect paid orders faster but create more MixPay API traffic
+- `mixpay.allowedCreators`: optional sender UUID allowlist; when non-empty, only these users can create collect orders in chat
+- `mixpay.notifyOnPending`: whether to send a conversation update when MixPay reports the order as `pending`
+- `mixpay.notifyOnPaidLess`: whether to send a conversation update when MixPay reports an underpayment
+
+Practical guidance:
+
+- If you only want the smallest working setup, configure `enabled`, `payeeId`, `defaultQuoteAssetId`, and `defaultSettlementAssetId`
+- If you do not want everyone in an authorized chat to create collect orders, set `allowedCreators`
+- If you do not run a private MixPay gateway, leave `apiBaseUrl` unset
+- If you want fewer status messages in chat, keep `notifyOnPending: false`
+
 ## Explicit Reply Templates
 
 When you want deterministic Mixin output instead of heuristic auto-selection, have the agent reply with exactly one fenced template block.
