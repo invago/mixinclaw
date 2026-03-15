@@ -1,6 +1,8 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { createRequire } from "node:module";
+import { pathToFileURL } from "node:url";
 import { MixinApi } from "@mixin.dev/mixin-node-sdk";
 import { buildAgentMediaPayload, evaluateSenderGroupAccess, resolveDefaultGroupPolicy } from "openclaw/plugin-sdk";
 import type { AgentMediaPayload, OpenClawConfig } from "openclaw/plugin-sdk";
@@ -38,9 +40,24 @@ const MAX_UNAUTH_NOTIFY_GROUPS = 1000;
 const INBOUND_MEDIA_MAX_BYTES = 30 * 1024 * 1024;
 const USER_PROFILE_CACHE_TTL_MS = 10 * 60 * 1000;
 const MAX_USER_PROFILE_CACHE = 2000;
+const GROUP_PROFILE_CACHE_TTL_MS = 10 * 60 * 1000;
+const MAX_GROUP_PROFILE_CACHE = 1000;
+const BOT_PROFILE_CACHE_TTL_MS = 10 * 60 * 1000;
+const SESSION_LABEL_MAX_LENGTH = 64;
+const requireFromHere = createRequire(import.meta.url);
 
 type CachedUserProfile = {
   fullName: string;
+  expiresAt: number;
+};
+
+type CachedGroupProfile = {
+  name: string;
+  expiresAt: number;
+};
+
+type CachedBotProfile = {
+  name: string;
   expiresAt: number;
 };
 
@@ -53,6 +70,12 @@ type MixinAttachmentRequest = {
 };
 
 const cachedUserProfiles = new Map<string, CachedUserProfile>();
+const cachedGroupProfiles = new Map<string, CachedGroupProfile>();
+const cachedBotProfiles = new Map<string, CachedBotProfile>();
+let cachedUpdateSessionStore:
+  | ((storePath: string, mutator: (store: Record<string, Record<string, unknown>>) => void | Promise<void>) => Promise<unknown>)
+  | null
+  | undefined;
 
 function isProcessed(messageId: string): boolean {
   return processedMessages.has(messageId);
@@ -127,6 +150,14 @@ function buildUserProfileCacheKey(accountId: string, userId: string): string {
   return `${accountId}:${userId.trim().toLowerCase()}`;
 }
 
+function buildGroupProfileCacheKey(accountId: string, conversationId: string): string {
+  return `${accountId}:${conversationId.trim().toLowerCase()}`;
+}
+
+function buildBotProfileCacheKey(accountId: string): string {
+  return accountId.trim().toLowerCase();
+}
+
 function pruneUserProfileCache(now: number): void {
   for (const [key, cached] of cachedUserProfiles) {
     if (cached.expiresAt <= now) {
@@ -140,6 +171,111 @@ function pruneUserProfileCache(now: number): void {
       break;
     }
     cachedUserProfiles.delete(first);
+  }
+}
+
+function pruneGroupProfileCache(now: number): void {
+  for (const [key, cached] of cachedGroupProfiles) {
+    if (cached.expiresAt <= now) {
+      cachedGroupProfiles.delete(key);
+    }
+  }
+
+  while (cachedGroupProfiles.size >= MAX_GROUP_PROFILE_CACHE) {
+    const first = cachedGroupProfiles.keys().next().value;
+    if (!first) {
+      break;
+    }
+    cachedGroupProfiles.delete(first);
+  }
+}
+
+function pruneBotProfileCache(now: number): void {
+  for (const [key, cached] of cachedBotProfiles) {
+    if (cached.expiresAt <= now) {
+      cachedBotProfiles.delete(key);
+    }
+  }
+}
+
+function normalizePresentationName(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+function sliceUtf16Safe(value: string, maxLength: number): string {
+  if (value.length <= maxLength) {
+    return value;
+  }
+  let sliced = value.slice(0, maxLength);
+  const lastCodeUnit = sliced.charCodeAt(sliced.length - 1);
+  if (lastCodeUnit >= 0xd800 && lastCodeUnit <= 0xdbff) {
+    sliced = sliced.slice(0, -1);
+  }
+  return sliced;
+}
+
+function clampSessionLabel(label: string): string {
+  const trimmed = normalizePresentationName(label);
+  if (!trimmed) {
+    return "";
+  }
+  if (trimmed.length <= SESSION_LABEL_MAX_LENGTH) {
+    return trimmed;
+  }
+  return sliceUtf16Safe(trimmed, SESSION_LABEL_MAX_LENGTH);
+}
+
+async function loadUpdateSessionStore(log: {
+  info: (m: string) => void;
+  warn: (m: string) => void;
+  error: (m: string, e?: unknown) => void;
+}): Promise<
+  ((storePath: string, mutator: (store: Record<string, Record<string, unknown>>) => void | Promise<void>) => Promise<unknown>) | null
+> {
+  if (cachedUpdateSessionStore !== undefined) {
+    return cachedUpdateSessionStore;
+  }
+
+  try {
+    const openclawEntryPath = requireFromHere.resolve("openclaw");
+    const openclawEntryDir = path.dirname(openclawEntryPath);
+    const distDir = path.basename(openclawEntryDir).toLowerCase() === "dist" ? openclawEntryDir : path.join(openclawEntryDir, "dist");
+
+    const entries = await fs.readdir(distDir, { withFileTypes: true });
+    const sessionModules = entries
+      .filter((entry) => entry.isFile() && /^sessions-.*\.js$/i.test(entry.name))
+      .map((entry) => entry.name)
+      .sort();
+    if (!sessionModules.length) {
+      cachedUpdateSessionStore = null;
+      return null;
+    }
+
+    for (const sessionModule of sessionModules) {
+      try {
+        const moduleUrl = pathToFileURL(path.join(distDir, sessionModule)).href;
+        const imported = (await import(moduleUrl)) as Record<string, unknown>;
+        const updateSessionStore = imported.h;
+        if (typeof updateSessionStore === "function") {
+          cachedUpdateSessionStore = updateSessionStore as (
+            storePath: string,
+            mutator: (store: Record<string, Record<string, unknown>>) => void | Promise<void>,
+          ) => Promise<unknown>;
+          return cachedUpdateSessionStore;
+        }
+      } catch {
+        continue;
+      }
+    }
+
+    cachedUpdateSessionStore = null;
+    return null;
+  } catch (err) {
+    log.warn(
+      `[mixin] failed to load OpenClaw session store updater: error=${err instanceof Error ? err.message : String(err)}`,
+    );
+    cachedUpdateSessionStore = null;
+    return null;
   }
 }
 
@@ -177,6 +313,123 @@ async function resolveSenderName(params: {
       `[mixin] failed to resolve sender profile: accountId=${params.accountId}, userId=${userId}, error=${err instanceof Error ? err.message : String(err)}`,
     );
     return userId;
+  }
+}
+
+async function resolveGroupName(params: {
+  accountId: string;
+  config: MixinAccountConfig;
+  conversationId: string;
+  log: { info: (m: string) => void; warn: (m: string) => void; error: (m: string, e?: unknown) => void };
+}): Promise<string> {
+  const conversationId = params.conversationId.trim();
+  if (!conversationId) {
+    return "";
+  }
+
+  const now = Date.now();
+  const cacheKey = buildGroupProfileCacheKey(params.accountId, conversationId);
+  const cached = cachedGroupProfiles.get(cacheKey);
+  if (cached && cached.expiresAt > now) {
+    return cached.name;
+  }
+
+  pruneGroupProfileCache(now);
+
+  try {
+    const client = buildClient(params.config);
+    const conversation = await client.conversation.fetch(conversationId);
+    const name = normalizePresentationName(String(conversation.name ?? "")) || conversationId;
+    cachedGroupProfiles.set(cacheKey, {
+      name,
+      expiresAt: now + GROUP_PROFILE_CACHE_TTL_MS,
+    });
+    return name;
+  } catch (err) {
+    params.log.warn(
+      `[mixin] failed to resolve group profile: accountId=${params.accountId}, conversationId=${conversationId}, error=${err instanceof Error ? err.message : String(err)}`,
+    );
+    return conversationId;
+  }
+}
+
+async function resolveBotName(params: {
+  accountId: string;
+  config: MixinAccountConfig;
+  log: { info: (m: string) => void; warn: (m: string) => void; error: (m: string, e?: unknown) => void };
+}): Promise<string> {
+  const configuredName = normalizePresentationName(params.config.name ?? "");
+  if (configuredName) {
+    return configuredName;
+  }
+
+  const now = Date.now();
+  const cacheKey = buildBotProfileCacheKey(params.accountId);
+  const cached = cachedBotProfiles.get(cacheKey);
+  if (cached && cached.expiresAt > now) {
+    return cached.name;
+  }
+
+  pruneBotProfileCache(now);
+
+  try {
+    const client = buildClient(params.config);
+    const profile = await client.user.profile();
+    const name = normalizePresentationName(String(profile.full_name ?? "")) || params.accountId;
+    cachedBotProfiles.set(cacheKey, {
+      name,
+      expiresAt: now + BOT_PROFILE_CACHE_TTL_MS,
+    });
+    return name;
+  } catch (err) {
+    params.log.warn(
+      `[mixin] failed to resolve bot profile: accountId=${params.accountId}, error=${err instanceof Error ? err.message : String(err)}`,
+    );
+    return params.accountId;
+  }
+}
+
+async function updateSessionPresentation(params: {
+  storePath: string;
+  sessionKey: string;
+  label: string;
+  displayName?: string;
+  log: { info: (m: string) => void; warn: (m: string) => void; error: (m: string, e?: unknown) => void };
+}): Promise<void> {
+  const nextLabel = clampSessionLabel(params.label);
+  const nextDisplayName = clampSessionLabel(params.displayName ?? "");
+  if (!nextLabel && !nextDisplayName) {
+    return;
+  }
+
+  try {
+    const updateSessionStore = await loadUpdateSessionStore(params.log);
+    if (!updateSessionStore) {
+      return;
+    }
+    await updateSessionStore(params.storePath, (store: Record<string, Record<string, unknown>>) => {
+      const entry = store[params.sessionKey];
+      if (!entry || typeof entry !== "object") {
+        return;
+      }
+
+      let changed = false;
+      if (nextLabel && entry.label !== nextLabel) {
+        entry.label = nextLabel;
+        changed = true;
+      }
+      if (nextDisplayName && entry.displayName !== nextDisplayName) {
+        entry.displayName = nextDisplayName;
+        changed = true;
+      }
+      if (changed) {
+        entry.updatedAt = new Date().toISOString();
+      }
+    });
+  } catch (err) {
+    params.log.warn(
+      `[mixin] failed to update session presentation: sessionKey=${params.sessionKey}, error=${err instanceof Error ? err.message : String(err)}`,
+    );
   }
 }
 
@@ -877,6 +1130,22 @@ export async function handleMixinMessage(params: {
     userId: msg.userId,
     log,
   });
+  const botName = await resolveBotName({
+    accountId,
+    config,
+    log,
+  });
+  const groupName = isDirect
+    ? ""
+    : await resolveGroupName({
+      accountId,
+      config,
+      conversationId: msg.conversationId,
+      log,
+    });
+  const conversationLabel = isDirect
+    ? clampSessionLabel(`${botName}-${senderName || msg.userId}`)
+    : clampSessionLabel(`${botName}-${groupName || msg.conversationId}`);
 
   const ctx = rt.channel.reply.finalizeInboundContext({
     Body: text,
@@ -888,6 +1157,8 @@ export async function handleMixinMessage(params: {
     SessionKey: route.sessionKey,
     AccountId: accountId,
     ChatType: isDirect ? "direct" : "group",
+    ConversationLabel: conversationLabel,
+    GroupSubject: isDirect ? undefined : groupName || msg.conversationId,
     Provider: "mixin",
     Surface: "mixin",
     MessageSid: msg.messageId,
@@ -907,6 +1178,13 @@ export async function handleMixinMessage(params: {
     onRecordError: (err: unknown) => {
       log.error("[mixin] session record error", err);
     },
+  });
+  await updateSessionPresentation({
+    storePath,
+    sessionKey: route.sessionKey,
+    label: conversationLabel,
+    displayName: isDirect ? undefined : conversationLabel,
+    log,
   });
 
   log.info(`[mixin] dispatching ${msg.messageId} from ${msg.userId}`);
