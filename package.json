@@ -1,1 +1,79 @@
-{"name":"@invago/mixin","version":"1.0.9","description":"Mixin Messenger channel plugin for OpenClaw","type":"module","main":"index.ts","bin":{"mixin-plugin-onboard":"tools/mixin-plugin-onboard/bin/mixin-plugin-onboard.mjs"},"scripts":{"dev":"nodemon --exec \"node --import jiti/register index.ts\" --ext ts","lint":"eslint src/**/*.ts index.ts","typecheck":"tsc --noEmit","tool:info":"node --import jiti/register.js tools/mixin-plugin-onboard/src/index.ts info","tool:doctor":"node --import jiti/register.js tools/mixin-plugin-onboard/src/index.ts doctor"},"peerDependencies":{"openclaw":">=2026.2.0"},"dependencies":{"@mixin.dev/mixin-node-sdk":"^7.4.1","@noble/curves":"^2.0.1","@noble/hashes":"^2.0.1","axios":"^1.13.6","express":"^5.2.1","jiti":"^1.21.0","proxy-agent":"^6.5.0","ws":"^8.18.3","zod":"^4.3.6"},"devDependencies":{"@eslint/js":"^10.0.1","@types/node":"^20.0.0","eslint":"^10.0.3","globals":"^17.4.0","nodemon":"^3.0.0","typescript":"^5.3.0","typescript-eslint":"^8.56.1"},"keywords":["openclaw","mixin","messenger","plugin","channel"],"author":"invagao","license":"MIT","repository":{"type":"git","url":"git+https://github.com/invago/mixinclaw.git"},"openclaw":{"extensions":["./index.ts"],"channel":{"id":"mixin","label":"Mixin Messenger","selectionLabel":"Mixin Messenger (Blaze WebSocket)","docsPath":"/channels/mixin","order":70,"aliases":["mixin-messenger","mixin"],"quickstartAllowFrom":true},"install":{"npmSpec":"@invago/mixin","localPath":"extensions/mixin"}}}
+{
+  "name": "@invago/mixin",
+  "version": "1.0.9",
+  "description": "Mixin Messenger channel plugin for OpenClaw",
+  "type": "module",
+  "main": "index.ts",
+  "scripts": {
+    "dev": "nodemon --exec \"node --import jiti/register index.ts\" --ext ts",
+    "lint": "eslint src/**/*.ts index.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "openclaw": ">=2026.2.0"
+  },
+  "dependencies": {
+    "@mixin.dev/mixin-node-sdk": "^7.4.1",
+    "@noble/curves": "^2.0.1",
+    "@noble/hashes": "^2.0.1",
+    "axios": "^1.13.6",
+    "express": "^5.2.1",
+    "jiti": "^1.21.0",
+    "proxy-agent": "^6.5.0",
+    "ws": "^8.18.3",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^20.0.0",
+    "eslint": "^10.0.3",
+    "globals": "^17.4.0",
+    "nodemon": "^3.0.0",
+    "typescript": "^5.3.0",
+    "typescript-eslint": "^8.56.1"
+  },
+  "keywords": [
+    "openclaw",
+    "mixin",
+    "messenger",
+    "plugin",
+    "channel"
+  ],
+  "author": "invagao",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/invago/mixinclaw.git"
+  },
+  "openclaw": {
+    "extensions": [
+      "./index.ts"
+    ],
+    "channel": {
+      "id": "mixin",
+      "label": "Mixin Messenger",
+      "selectionLabel": "Mixin Messenger (Blaze WebSocket)",
+      "docsPath": "/channels/mixin",
+      "order": 70,
+      "aliases": [
+        "mixin-messenger",
+        "mixin"
+      ],
+      "quickstartAllowFrom": true
+    },
+    "install": {
+      "npmSpec": "@invago/mixin",
+      "localPath": "extensions/mixin"
+    }
+  },
+  "files": [
+    "README.md",
+    "README.zh-CN.md",
+    "index.ts",
+    "openclaw.plugin.json",
+    "package.json",
+    "src/",
+    "tsconfig.json",
+    "eslint.config.mjs"
+  ]
+}

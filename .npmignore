@@ -11,3 +11,4 @@ package-lock.json
 docs/
 CLAUDE.md
 .claude
+tools/
