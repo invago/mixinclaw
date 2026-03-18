@@ -11,3 +11,5 @@ AGENTS.md
 data/mixin-outbox.json
 data/mixin-outbox.json.tmp
 docs/
+CLAUDE.md
+.claude
