@@ -10,12 +10,7 @@ import {
   sendPostMessage,
   sendTextMessage,
 } from "./send-service.js";
-
-type SendLog = {
-  info: (msg: string) => void;
-  warn: (msg: string) => void;
-  error: (msg: string, err?: unknown) => void;
-};
+import type { SendLog } from "./shared.js";
 
 export type MixinOutboundStep =
   | { kind: "text"; text: string }

@@ -99,6 +99,9 @@ function normalizeRecord(record: MixpayOrderRecord): MixpayOrderRecord {
   };
 }
 
+const ORDER_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
+const TERMINAL_STATUSES: MixpayOrderStatus[] = ["success", "failed", "expired"];
+
 async function ensureLoaded(): Promise<void> {
   if (state.loaded) {
     return;
@@ -108,7 +111,15 @@ async function ensureLoaded(): Promise<void> {
     const raw = await readFile(storeFile, "utf8");
     const parsed = JSON.parse(raw) as { orders?: MixpayOrderRecord[] } | MixpayOrderRecord[];
     const orders = Array.isArray(parsed) ? parsed : Array.isArray(parsed.orders) ? parsed.orders : [];
-    state.orders = orders.map(normalizeRecord);
+    const cutoff = Date.now() - ORDER_RETENTION_MS;
+    state.orders = orders
+      .map(normalizeRecord)
+      .filter((order) => {
+        if (!TERMINAL_STATUSES.includes(order.status)) {
+          return true;
+        }
+        return Date.parse(order.updatedAt) > cutoff;
+      });
   } catch {
     state.orders = [];
   }

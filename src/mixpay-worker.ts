@@ -13,12 +13,7 @@ import {
   updateMixpayOrder,
 } from "./mixpay-store.js";
 import { sendTextMessage } from "./send-service.js";
-
-type WorkerLog = {
-  info: (msg: string) => void;
-  warn: (msg: string) => void;
-  error: (msg: string, err?: unknown) => void;
-};
+import { sleep, type SendLog } from "./shared.js";
 
 export type MixinCollectRequest = {
   amount: string;
@@ -32,20 +27,14 @@ export type MixinCollectRequest = {
 const state: {
   started: boolean;
   cfg: OpenClawConfig | null;
-  log: WorkerLog | null;
+  log: SendLog | null;
 } = {
   started: false,
   cfg: null,
   log: null,
 };
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 function getPendingPollDelayMs(cfg: OpenClawConfig): number {
-  const intervals = Array.from(new Set(["default", ...[]]))
-    .map(() => 30);
   const configured = Object.values((cfg.channels?.mixin as { accounts?: Record<string, { mixpay?: MixinMixpayConfig }> } | undefined)?.accounts ?? {})
     .map((account) => account?.mixpay?.pollIntervalSec)
     .filter((value): value is number => typeof value === "number" && Number.isFinite(value) && value > 0);
@@ -53,7 +42,7 @@ function getPendingPollDelayMs(cfg: OpenClawConfig): number {
   if (typeof topLevel === "number" && Number.isFinite(topLevel) && topLevel > 0) {
     configured.push(topLevel);
   }
-  return Math.max(5_000, Math.min(...(configured.length > 0 ? configured : intervals)) * 1000);
+  return Math.max(5_000, Math.min(...(configured.length > 0 ? configured : [30])) * 1000);
 }
 
 function formatStatusLabel(status: MixpayOrderStatus): string {
@@ -130,7 +119,7 @@ async function notifyOrderStatus(
   cfg: OpenClawConfig,
   order: MixpayOrderRecord,
   nextStatus: MixpayOrderStatus,
-  log: WorkerLog,
+  log: SendLog,
 ): Promise<void> {
   const recipientId = order.recipientId || undefined;
   const message = [
@@ -201,7 +190,7 @@ async function pollPendingOrders(): Promise<void> {
   }
 }
 
-export async function startMixpayWorker(cfg: OpenClawConfig, log: WorkerLog): Promise<void> {
+export async function startMixpayWorker(cfg: OpenClawConfig, log: SendLog): Promise<void> {
   state.cfg = cfg;
   state.log = log;
   if (state.started) {

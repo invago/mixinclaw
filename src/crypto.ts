@@ -12,6 +12,11 @@ function aes256CbcDecrypt(key: Buffer, iv: Buffer, ciphertext: Buffer): Buffer {
   const final = Buffer.concat([decrypted, decipher.final()]);
   const padLen = final[final.length - 1];
   if (padLen > 0 && padLen <= 16) {
+    for (let i = final.length - padLen; i < final.length; i++) {
+      if (final[i] !== padLen) {
+        return final;
+      }
+    }
     return final.slice(0, final.length - padLen);
   }
   return final;

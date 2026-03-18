@@ -3,14 +3,12 @@ import os from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
-import { MixinApi } from "@mixin.dev/mixin-node-sdk";
 import { buildAgentMediaPayload, evaluateSenderGroupAccess, resolveDefaultGroupPolicy } from "openclaw/plugin-sdk";
 import type { AgentMediaPayload, OpenClawConfig } from "openclaw/plugin-sdk";
 import { getAccountConfig, resolveConversationPolicy } from "./config.js";
 import type { MixinAccountConfig } from "./config-schema.js";
 import { decryptMixinMessage } from "./crypto.js";
 import { getMixpayOrderStatusText, getRecentMixpayOrdersText, refreshMixpayOrderStatus } from "./mixpay-worker.js";
-import { buildRequestConfig } from "./proxy.js";
 import { buildMixinOutboundPlanFromReplyText, executeMixinOutboundPlan } from "./outbound-plan.js";
 import { getMixinRuntime } from "./runtime.js";
 import {
@@ -18,6 +16,7 @@ import {
   purgePermanentInvalidOutboxEntries,
   sendTextMessage,
 } from "./send-service.js";
+import { buildClient } from "./shared.js";
 
 export interface MixinInboundMessage {
   conversationId: string;
@@ -134,18 +133,6 @@ function decodeContent(category: string, data: string): string {
   return `[${category}]`;
 }
 
-function buildClient(config: MixinAccountConfig) {
-  return MixinApi({
-    keystore: {
-      app_id: config.appId!,
-      session_id: config.sessionId!,
-      server_public_key: config.serverPublicKey!,
-      session_private_key: config.sessionPrivateKey!,
-    },
-    requestConfig: buildRequestConfig(config.proxy),
-  });
-}
-
 function buildUserProfileCacheKey(accountId: string, userId: string): string {
   return `${accountId}:${userId.trim().toLowerCase()}`;
 }
@@ -255,9 +242,14 @@ async function loadUpdateSessionStore(log: {
       try {
         const moduleUrl = pathToFileURL(path.join(distDir, sessionModule)).href;
         const imported = (await import(moduleUrl)) as Record<string, unknown>;
-        const updateSessionStore = imported.h;
-        if (typeof updateSessionStore === "function") {
-          cachedUpdateSessionStore = updateSessionStore as (
+        const candidate = Object.values(imported).find((val) => {
+          if (typeof val !== "function" || val.length !== 2) {
+            return false;
+          }
+          return true;
+        });
+        if (candidate) {
+          cachedUpdateSessionStore = candidate as (
             storePath: string,
             mutator: (store: Record<string, Record<string, unknown>>) => void | Promise<void>,
           ) => Promise<unknown>;
@@ -268,6 +260,7 @@ async function loadUpdateSessionStore(log: {
       }
     }
 
+    log.warn("[mixin] no matching updateSessionStore export found in session modules");
     cachedUpdateSessionStore = null;
     return null;
   } catch (err) {
@@ -788,9 +781,7 @@ async function handleUnauthorizedDirectMessage(params: {
   }
 
   if (dmPolicy === "allowlist") {
-    const reply = config.allowFrom.length > 0
-      ? `OpenClaw: access not configured.\n\nYour Mixin UUID: ${msg.userId}\n\nAsk the bot owner to add your Mixin UUID to channels.mixin.allowFrom.`
-      : `OpenClaw: access not configured.\n\nYour Mixin UUID: ${msg.userId}\n\nAsk the bot owner to add your Mixin UUID to channels.mixin.allowFrom.`;
+    const reply = `OpenClaw: access not configured.\n\nYour Mixin UUID: ${msg.userId}\n\nAsk the bot owner to add your Mixin UUID to channels.mixin.allowFrom.`;
     await sendTextMessage(cfg, accountId, msg.conversationId, msg.userId, reply, log);
   }
 }

@@ -10,12 +10,7 @@ import crypto from "crypto";
 import type { MixinAccountConfig } from "./config-schema.js";
 import { createProxyAgent } from "./proxy.js";
 import type { MixinBlazeOutboundMessage } from "./runtime.js";
-
-type SendLog = {
-  info: (msg: string) => void;
-  error: (msg: string, err?: unknown) => void;
-  warn: (msg: string) => void;
-};
+import type { SendLog } from "./shared.js";
 
 function buildKeystore(config: MixinAccountConfig) {
   return {

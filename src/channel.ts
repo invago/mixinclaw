@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { MixinApi, uniqueConversationID } from "@mixin.dev/mixin-node-sdk";
+import { uniqueConversationID } from "@mixin.dev/mixin-node-sdk";
 import {
   buildChannelConfigSchema,
   createDefaultChannelRuntimeState,
@@ -9,13 +9,13 @@ import {
 } from "openclaw/plugin-sdk";
 import type { ChannelGatewayContext, OpenClawConfig, ReplyPayload } from "openclaw/plugin-sdk";
 import { runBlazeLoop } from "./blaze-service.js";
+import { buildClient, sleep } from "./shared.js";
 import { MixinConfigSchema } from "./config-schema.js";
 import { describeAccount, isConfigured, listAccountIds, resolveAccount, resolveDefaultAccountId, resolveMediaMaxMb } from "./config.js";
 import type { MixinAccountConfig } from "./config-schema.js";
 import { handleMixinMessage, type MixinInboundMessage } from "./inbound-handler.js";
 import { getMixpayStatusSnapshot, startMixpayWorker } from "./mixpay-worker.js";
 import { buildMixinOutboundPlanFromReplyPayload, executeMixinOutboundPlan } from "./outbound-plan.js";
-import { buildRequestConfig } from "./proxy.js";
 import { getMixinRuntime, setMixinBlazeSender } from "./runtime.js";
 import { getOutboxStatus, sendAudioMessage, sendFileMessage, sendTextMessage, startSendWorker } from "./send-service.js";
 import { buildMixinAccountSnapshot, buildMixinChannelSummary, resolveMixinStatusSnapshot } from "./status.js";
@@ -34,27 +34,11 @@ const conversationCategoryCache = new Map<string, {
   expiresAt: number;
 }>();
 
-async function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 function maskKey(key: string): string {
   if (!key || key.length < 8) {
     return "****";
   }
   return key.slice(0, 4) + "****" + key.slice(-4);
-}
-
-function buildClient(config: MixinAccountConfig) {
-  return MixinApi({
-    keystore: {
-      app_id: config.appId!,
-      session_id: config.sessionId!,
-      server_public_key: config.serverPublicKey!,
-      session_private_key: config.sessionPrivateKey!,
-    },
-    requestConfig: buildRequestConfig(config.proxy),
-  });
 }
 
 async function resolveIsDirectMessage(params: {
@@ -75,6 +59,13 @@ async function resolveIsDirectMessage(params: {
   if (cached && cached.expiresAt > Date.now()) {
     params.log.info(`[mixin] conversation category resolved from cache: conversationId=${conversationId}, category=${cached.category}`);
     return cached.category !== "GROUP";
+  }
+
+  const now = Date.now();
+  for (const [key, entry] of conversationCategoryCache) {
+    if (entry.expiresAt <= now) {
+      conversationCategoryCache.delete(key);
+    }
   }
 
   try {
