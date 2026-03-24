@@ -7,6 +7,7 @@ import {
   formatMixinHelpText,
   formatMixinSetupText,
   formatMixinStatusText,
+  normalizeMixinSetupMode,
 } from "./src/plugin-admin.js";
 import { setMixinRuntime } from "./src/runtime.js";
 
@@ -23,9 +24,9 @@ async function buildStatusText(cfg: OpenClawConfig): Promise<string> {
   return formatMixinStatusText(cfg, diagnostics);
 }
 
-async function buildSetupText(cfg: OpenClawConfig): Promise<string> {
+async function buildSetupText(cfg: OpenClawConfig, mode?: string): Promise<string> {
   const diagnostics = await buildMixinPluginDiagnostics(cfg);
-  return formatMixinSetupText(cfg, diagnostics);
+  return formatMixinSetupText(cfg, diagnostics, normalizeMixinSetupMode(mode ?? ""));
 }
 
 const plugin = {
@@ -64,8 +65,17 @@ const plugin = {
     api.registerCommand({
       name: "setup",
       description: "Show Mixin setup guide",
-      handler: async (ctx: { config: OpenClawConfig }) => ({
-        text: await buildSetupText(ctx.config),
+      acceptsArgs: true,
+      handler: async (ctx: { config: OpenClawConfig; args?: string }) => ({
+        text: await buildSetupText(ctx.config, ctx.args),
+      }),
+    });
+    api.registerCommand({
+      name: "mixin-setup",
+      description: "Show Mixin setup guide",
+      acceptsArgs: true,
+      handler: async (ctx: { config: OpenClawConfig; args?: string }) => ({
+        text: await buildSetupText(ctx.config, ctx.args),
       }),
     });
     api.registerCommand({

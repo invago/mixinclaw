@@ -687,7 +687,7 @@ Rules:
 
 - The plugin manifest is `openclaw.plugin.json`.
 - Channel config stays under `channels.mixin` and `channels.mixin.accounts.<accountId>`.
-- Host-side diagnostics are available as `/mixin-status`, `/mixin-accounts`, and `/mixin-help`.
+- Host-side diagnostics are available as `/setup`, `/setup single`, `/setup multi`, `/mixin-status`, `/mixin-accounts`, and `/mixin-help`.
 - For local development, prefer `openclaw plugins install -l .`.
 
 - Use `/setup` for the guided setup flow.

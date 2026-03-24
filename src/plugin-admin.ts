@@ -17,6 +17,8 @@ export type MixinPluginDiagnostics = {
   mediaMaxMb: number | null;
 };
 
+export type MixinSetupMode = "summary" | "single" | "multi";
+
 function formatLine(label: string, value: string | number | boolean | null | undefined): string {
   return `${label}: ${value ?? "-"}`;
 }
@@ -77,7 +79,8 @@ export function formatMixinStatusText(cfg: OpenClawConfig, diagnostics: MixinPlu
 export function formatMixinHelpText(): string {
   return [
     "Mixin plugin commands",
-    "/setup - open the setup guide",
+    "/setup [summary|single|multi] - open the setup guide",
+    "/mixin-setup [summary|single|multi] - open the setup guide",
     "/mixin-status - show account and queue status",
     "/mixin-accounts - list configured accounts",
     "/mixin-help - show this help text",
@@ -94,7 +97,19 @@ export function buildMixinAccountsText(cfg: OpenClawConfig): string {
   return lines.join("\n");
 }
 
-export function formatMixinSetupText(cfg: OpenClawConfig, diagnostics?: MixinPluginDiagnostics): string {
+export function normalizeMixinSetupMode(input: string | undefined): MixinSetupMode {
+  const mode = input?.trim().toLowerCase() ?? "";
+  if (mode === "single" || mode === "multi" || mode === "summary") {
+    return mode;
+  }
+  return "summary";
+}
+
+export function formatMixinSetupText(
+  cfg: OpenClawConfig,
+  diagnostics?: MixinPluginDiagnostics,
+  mode: MixinSetupMode = "summary",
+): string {
   const resolved = diagnostics ?? {
     defaultAccountId: resolveDefaultAccountId(cfg),
     accountIds: listAccountIds(cfg),
@@ -111,11 +126,27 @@ export function formatMixinSetupText(cfg: OpenClawConfig, diagnostics?: MixinPlu
   return [
     "Mixin setup",
     "",
-    "1. Keep or create the default account under channels.mixin.",
-    "2. For multi-account setups, use channels.mixin.accounts.<accountId>.",
-    "3. Fill in appId, sessionId, serverPublicKey, and sessionPrivateKey.",
-    "4. Use /mixin-status after restart to confirm the account is ready.",
-    "5. Use /mixin-accounts to verify all configured accounts.",
+    mode === "single"
+      ? "Single-account flow"
+      : mode === "multi"
+        ? "Multi-account flow"
+        : "Quick summary",
+    "",
+    mode === "single"
+      ? "1. Put the account fields directly under channels.mixin."
+      : "1. Keep or create the default account under channels.mixin.",
+    mode === "single"
+      ? "2. Fill in appId, sessionId, serverPublicKey, and sessionPrivateKey."
+      : "2. For multi-account setups, use channels.mixin.accounts.<accountId>.",
+    mode === "single"
+      ? "3. Use /mixin-status after restart to confirm the account is ready."
+      : "3. Fill in appId, sessionId, serverPublicKey, and sessionPrivateKey.",
+    mode === "single"
+      ? "4. Use /mixin-help to see the available commands."
+      : "4. Use /mixin-status after restart to confirm the account is ready.",
+    mode === "multi"
+      ? "5. Use /mixin-accounts to verify all configured accounts."
+      : "5. Use /mixin-accounts to verify all configured accounts.",
     "",
     `Default account: ${resolved.defaultAccountId}`,
     `Accounts: ${resolved.accountIds.length}`,
