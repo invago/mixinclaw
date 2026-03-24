@@ -1,9 +1,14 @@
 {
   "id": "mixin",
-  "channels": ["mixin"],
+  "name": "Mixin Messenger Channel",
+  "description": "Mixin Messenger channel via Blaze WebSocket",
+  "version": "1.0.10",
+  "channels": [
+    "mixin"
+  ],
   "configSchema": {
     "type": "object",
-    "additionalProperties": true,
+    "additionalProperties": false,
     "properties": {}
   }
 }

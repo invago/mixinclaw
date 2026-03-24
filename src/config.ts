@@ -12,8 +12,45 @@ type RawMixinConfig = Partial<MixinAccountConfig> & {
   accounts?: Record<string, Partial<MixinAccountConfig> | undefined>;
 };
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function hasLegacyMixinConfig(raw: Record<string, unknown>): boolean {
+  const typed = raw as Partial<MixinAccountConfig> & {
+    defaultAccount?: unknown;
+    accounts?: unknown;
+  };
+
+  return Boolean(
+    typed.defaultAccount ||
+      typed.accounts ||
+      typed.appId ||
+      typed.sessionId ||
+      typed.serverPublicKey ||
+      typed.sessionPrivateKey ||
+      typed.name,
+  );
+}
+
 function getRawConfig(cfg: OpenClawConfig): RawMixinConfig {
-  return ((cfg.channels as Record<string, unknown>)?.mixin ?? {}) as RawMixinConfig;
+  const root = cfg as unknown as Record<string, unknown>;
+  const channels = isRecord(root.channels) ? root.channels : undefined;
+  const channelConfig = channels && isRecord(channels.mixin) ? channels.mixin : undefined;
+  if (channelConfig) {
+    return channelConfig as RawMixinConfig;
+  }
+
+  const legacyNamedConfig = isRecord(root.mixin) ? root.mixin : undefined;
+  if (legacyNamedConfig) {
+    return legacyNamedConfig as RawMixinConfig;
+  }
+
+  if (hasLegacyMixinConfig(root)) {
+    return root as RawMixinConfig;
+  }
+
+  return {};
 }
 
 function hasTopLevelAccountConfig(raw: RawMixinConfig): boolean {
@@ -59,7 +96,9 @@ export function getAccountConfig(cfg: OpenClawConfig, accountId?: string): Mixin
   }
 
   const result = MixinAccountConfigSchema.safeParse(accountRaw);
-  if (result.success) return result.data;
+  if (result.success) {
+    return result.data;
+  }
   return MixinAccountConfigSchema.parse({});
 }
 
