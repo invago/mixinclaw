@@ -45,6 +45,14 @@ openclaw plugins list
 openclaw plugins info mixin
 ```
 
+## Cross-Platform Checklist
+
+- The same install commands work on Windows, Linux, and macOS.
+- Make sure `openclaw`, `node`, and your package manager (`npm` or `pnpm`) are available on `PATH`.
+- Voice duration detection needs `ffprobe`. If it is missing, audio falls back to file sending unless `audioRequireFfprobe` is enabled.
+- For local development, run `npm install` once and then `openclaw plugins install -l .` or `openclaw plugins install .`.
+- Runtime data is stored under the OpenClaw state directory resolved from `OPENCLAW_STATE_DIR`, `CLAWDBOT_STATE_DIR`, or `OPENCLAW_HOME`; no OS-specific path is required in plugin config.
+
 ## Local Development Install
 
 If you are developing locally, clone the repository and install dependencies:

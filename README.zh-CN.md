@@ -696,3 +696,11 @@ Mixin 现在已经支持通过 MixPay one-time payment 做收款。
 - 本地开发建议使用 `openclaw plugins install -l .`。
 
 - 使用 `/setup` 进入配置引导流程。
+
+## 跨平台检查清单
+
+- Windows、Linux、macOS 都使用同一套安装命令。
+- 请确保 `openclaw`、`node` 和包管理器（`npm` 或 `pnpm`）已经加入 `PATH`。
+- 语音时长识别依赖 `ffprobe`。如果系统里没有它，音频会降级为按文件发送，除非你显式开启 `audioRequireFfprobe`。
+- 本地开发时，先执行一次 `npm install`，然后用 `openclaw plugins install -l .` 或 `openclaw plugins install .` 安装。
+- 运行时数据会存放在 OpenClaw 状态目录中，来源可能是 `OPENCLAW_STATE_DIR`、`CLAWDBOT_STATE_DIR` 或 `OPENCLAW_HOME`，插件配置里不需要写死操作系统路径。
