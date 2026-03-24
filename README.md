@@ -2,6 +2,8 @@
 
 Connect [Mixin Messenger](https://mixin.one/messenger) to [OpenClaw](https://openclaw.ai).
 
+> Supported on the latest OpenClaw 3.23 plugin architecture.
+
 **[Chinese Documentation](README.zh-CN.md)**
 
 ## Overview

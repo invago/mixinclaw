@@ -2,6 +2,8 @@
 
 将 [Mixin Messenger](https://mixin.one/messenger) 接入 [OpenClaw](https://openclaw.ai)。
 
+> 已支持 OpenClaw 3.23 最新插件架构。
+
 **[English Documentation](README.md)**
 
 ## 概览
