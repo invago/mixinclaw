@@ -17,6 +17,7 @@ import {
   sendTextMessage,
 } from "./send-service.js";
 import { buildClient } from "./shared.js";
+import { rememberMixinMessage, resolveMixinReplyContext } from "./message-context.js";
 
 export interface MixinInboundMessage {
   conversationId: string;
@@ -25,6 +26,7 @@ export interface MixinInboundMessage {
   category: string;
   data: string;
   createdAt: string;
+  quoteMessageId?: string;
   publicKey?: string;
 }
 
@@ -484,6 +486,20 @@ function formatInboundAttachmentText(category: string, payload: MixinAttachmentR
   return details.length > 0 ? `[Mixin file] ${details.join(" | ")}` : "[Mixin file]";
 }
 
+function buildQuotedMessageContextNote(params: {
+  quoteMessageId: string;
+  found: boolean;
+}): string[] {
+  if (params.found) {
+    return [];
+  }
+
+  return [
+    `Quoted message id: ${params.quoteMessageId}`,
+    "Quoted message body was not available in cache.",
+  ];
+}
+
 async function resolveInboundAttachment(params: {
   rt: ReturnType<typeof getMixinRuntime>;
   config: MixinAccountConfig;
@@ -886,6 +902,31 @@ export async function handleMixinMessage(params: {
     return;
   }
 
+  const replyContext = resolveMixinReplyContext({
+    accountId,
+    conversationId: msg.conversationId,
+    quoteMessageId: msg.quoteMessageId,
+  });
+  rememberMixinMessage({
+    accountId,
+    conversationId: msg.conversationId,
+    messageId: msg.messageId,
+    senderId: msg.userId,
+    body: text,
+    timestamp: msg.createdAt,
+    direction: "inbound",
+    quoteMessageId: msg.quoteMessageId,
+  });
+  if (replyContext?.found) {
+    log.info(
+      `[mixin] reply context resolved: messageId=${msg.messageId}, quoteMessageId=${replyContext.id}, sender=${replyContext.sender ?? "unknown"}`,
+    );
+  } else if (replyContext?.id) {
+    log.info(
+      `[mixin] reply context missing from cache: messageId=${msg.messageId}, quoteMessageId=${replyContext.id}`,
+    );
+  }
+
   const conversationPolicy = isDirect
     ? null
     : resolveConversationPolicy(cfg, accountId, msg.conversationId);
@@ -1153,6 +1194,14 @@ export async function handleMixinMessage(params: {
     Provider: "mixin",
     Surface: "mixin",
     MessageSid: msg.messageId,
+    ReplyToId: replyContext?.id,
+    ReplyToBody: replyContext?.body,
+    ReplyToSender: replyContext?.sender,
+    ReplyToIsQuote: replyContext ? true : undefined,
+    UntrustedContext: replyContext?.id ? buildQuotedMessageContextNote({
+      quoteMessageId: replyContext.id,
+      found: replyContext.found,
+    }) : undefined,
     CommandAuthorized: commandAuthorized,
     OriginatingChannel: "mixin",
     OriginatingTo: isDirect ? msg.userId : msg.conversationId,

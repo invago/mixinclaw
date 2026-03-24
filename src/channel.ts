@@ -436,6 +436,7 @@ export const mixinPlugin = {
                     category: rawMsg.category ?? "PLAIN_TEXT",
                     data: rawMsg.data_base64 ?? rawMsg.data ?? "",
                     createdAt: rawMsg.created_at ?? new Date().toISOString(),
+                    quoteMessageId: rawMsg.quote_message_id ?? rawMsg.quoteMessageId ?? undefined,
                   };
 
                   try {

@@ -4,6 +4,7 @@ import os from "os";
 import path from "path";
 import type { OpenClawConfig } from "openclaw/plugin-sdk";
 import { getAccountConfig } from "./config.js";
+import { rememberMixinMessage } from "./message-context.js";
 import { getMixinBlazeSender, getMixinRuntime } from "./runtime.js";
 import { buildClient, sleep, type SendLog } from "./shared.js";
 
@@ -623,7 +624,7 @@ export async function sendTextMessage(
   text: string,
   log?: SendLog,
 ): Promise<SendResult> {
-  return sendMixinMessage(cfg, accountId, conversationId, recipientId, "PLAIN_TEXT", text, log);
+  return sendMixinMessage(cfg, accountId, conversationId, recipientId, "PLAIN_TEXT", text, log, text);
 }
 
 export async function sendPostMessage(
@@ -634,7 +635,7 @@ export async function sendPostMessage(
   text: string,
   log?: SendLog,
 ): Promise<SendResult> {
-  return sendMixinMessage(cfg, accountId, conversationId, recipientId, "PLAIN_POST", text, log);
+  return sendMixinMessage(cfg, accountId, conversationId, recipientId, "PLAIN_POST", text, log, text);
 }
 
 export async function sendFileMessage(
@@ -654,7 +655,16 @@ export async function sendFileMessage(
     mimeType,
   } satisfies FileOutboxBody);
 
-  return sendMixinMessage(cfg, accountId, conversationId, recipientId, "PLAIN_DATA", body, log);
+  return sendMixinMessage(
+    cfg,
+    accountId,
+    conversationId,
+    recipientId,
+    "PLAIN_DATA",
+    body,
+    log,
+    `${fileName} (${mimeType})`,
+  );
 }
 
 export async function sendAudioMessage(
@@ -674,7 +684,16 @@ export async function sendAudioMessage(
     waveForm: audio.waveForm,
   } satisfies AudioOutboxBody);
 
-  return sendMixinMessage(cfg, accountId, conversationId, recipientId, "PLAIN_AUDIO", body, log);
+  return sendMixinMessage(
+    cfg,
+    accountId,
+    conversationId,
+    recipientId,
+    "PLAIN_AUDIO",
+    body,
+    log,
+    `${path.basename(audio.filePath)} (${mimeType}${audio.duration ? `, ${audio.duration}s` : ""})`,
+  );
 }
 
 export async function sendButtonGroupMessage(
@@ -718,6 +737,7 @@ async function sendMixinMessage(
   category: MixinSupportedMessageCategory,
   body: string,
   log?: SendLog,
+  contextBody?: string,
 ): Promise<SendResult> {
   updateRuntime(cfg, log);
   await startSendWorker(cfg, log);
@@ -741,6 +761,17 @@ async function sendMixinMessage(
   state.entries.push(entry);
   await persistEntries();
   wakeWorker();
+
+  rememberMixinMessage({
+    accountId,
+    conversationId,
+    messageId: entry.messageId,
+    senderId: accountId,
+    senderName: "Mixin bot",
+    body: contextBody ?? body,
+    timestamp: now,
+    direction: "outbound",
+  });
 
   state.log.info(
     `[mixin] outbox enqueued: jobId=${entry.jobId}, messageId=${entry.messageId}, category=${category}, accountId=${accountId}, conversation=${conversationId}`,
