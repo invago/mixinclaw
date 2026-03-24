@@ -62,6 +62,13 @@ type CachedBotProfile = {
   expiresAt: number;
 };
 
+type CachedBotIdentity = {
+  name: string;
+  userId: string;
+  identityNumber: string;
+  expiresAt: number;
+};
+
 type MixinAttachmentRequest = {
   attachmentId: string;
   mimeType?: string;
@@ -73,6 +80,7 @@ type MixinAttachmentRequest = {
 const cachedUserProfiles = new Map<string, CachedUserProfile>();
 const cachedGroupProfiles = new Map<string, CachedGroupProfile>();
 const cachedBotProfiles = new Map<string, CachedBotProfile>();
+const cachedBotIdentities = new Map<string, CachedBotIdentity>();
 let cachedUpdateSessionStore:
   | ((storePath: string, mutator: (store: Record<string, Record<string, unknown>>) => void | Promise<void>) => Promise<unknown>)
   | null
@@ -352,21 +360,28 @@ async function resolveGroupName(params: {
   }
 }
 
-async function resolveBotName(params: {
+async function resolveBotIdentity(params: {
   accountId: string;
   config: MixinAccountConfig;
   log: { info: (m: string) => void; warn: (m: string) => void; error: (m: string, e?: unknown) => void };
-}): Promise<string> {
-  const configuredName = normalizePresentationName(params.config.name ?? "");
-  if (configuredName) {
-    return configuredName;
+}): Promise<CachedBotIdentity> {
+  const cacheKey = buildBotProfileCacheKey(params.accountId);
+  const cached = cachedBotIdentities.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached;
   }
 
   const now = Date.now();
-  const cacheKey = buildBotProfileCacheKey(params.accountId);
-  const cached = cachedBotProfiles.get(cacheKey);
-  if (cached && cached.expiresAt > now) {
-    return cached.name;
+  const configuredName = normalizePresentationName(params.config.name ?? "");
+  const configuredIdentity: CachedBotIdentity = {
+    name: configuredName || params.accountId,
+    userId: params.config.appId?.trim() || params.accountId,
+    identityNumber: "",
+    expiresAt: now + BOT_PROFILE_CACHE_TTL_MS,
+  };
+  if (configuredName) {
+    cachedBotIdentities.set(cacheKey, configuredIdentity);
+    return configuredIdentity;
   }
 
   pruneBotProfileCache(now);
@@ -374,17 +389,20 @@ async function resolveBotName(params: {
   try {
     const client = buildClient(params.config);
     const profile = await client.user.profile();
-    const name = normalizePresentationName(String(profile.full_name ?? "")) || params.accountId;
-    cachedBotProfiles.set(cacheKey, {
-      name,
+    const identity: CachedBotIdentity = {
+      name: normalizePresentationName(String(profile.full_name ?? "")) || params.accountId,
+      userId: normalizePresentationName(String(profile.user_id ?? "")) || params.config.appId?.trim() || params.accountId,
+      identityNumber: normalizePresentationName(String(profile.identity_number ?? "")),
       expiresAt: now + BOT_PROFILE_CACHE_TTL_MS,
-    });
-    return name;
+    };
+    cachedBotIdentities.set(cacheKey, identity);
+    return identity;
   } catch (err) {
     params.log.warn(
       `[mixin] failed to resolve bot profile: accountId=${params.accountId}, error=${err instanceof Error ? err.message : String(err)}`,
     );
-    return params.accountId;
+    cachedBotIdentities.set(cacheKey, configuredIdentity);
+    return configuredIdentity;
   }
 }
 
@@ -567,7 +585,7 @@ function shouldPassGroupFilter(
   config: MixinAccountConfig,
   text: string,
   replyContext?: { id: string } | null,
-  botName?: string,
+  botAliases: string[] = [],
 ): boolean {
   if (!config.requireMentionInGroup) {
     return true;
@@ -575,7 +593,7 @@ function shouldPassGroupFilter(
   if (replyContext?.id) {
     return true;
   }
-  if (hasBotMention(text, botName)) {
+  if (botAliases.some((alias) => hasBotMention(text, alias))) {
     return true;
   }
   if (text.trim().startsWith("/")) {
@@ -927,7 +945,7 @@ export async function handleMixinMessage(params: {
     return;
   }
 
-  const botName = await resolveBotName({
+  const botIdentity = await resolveBotIdentity({
     accountId,
     config,
     log,
@@ -961,10 +979,15 @@ export async function handleMixinMessage(params: {
     ? null
     : resolveConversationPolicy(cfg, accountId, msg.conversationId);
 
-  const groupMentioned = !isDirect && hasBotMention(text, botName);
+  const botAliases = [
+    botIdentity.identityNumber,
+    botIdentity.userId,
+    botIdentity.name,
+  ].filter((value): value is string => Boolean(value && value.trim()));
+  const groupMentioned = !isDirect && botAliases.some((alias) => hasBotMention(text, alias));
   if (!isDirect) {
     log.info(
-      `[mixin] group trigger check: messageId=${msg.messageId}, botName=${botName}, replyContext=${replyContext?.id ?? "none"}, mentioned=${groupMentioned}`,
+      `[mixin] group trigger check: messageId=${msg.messageId}, botName=${botIdentity.name}, botUserId=${botIdentity.userId}, botIdentityNumber=${botIdentity.identityNumber || "none"}, replyContext=${replyContext?.id ?? "none"}, mentioned=${groupMentioned}`,
     );
   }
 
@@ -979,7 +1002,7 @@ export async function handleMixinMessage(params: {
       },
       text,
       replyContext,
-      botName,
+      botAliases,
     )
   ) {
     log.info(`[mixin] group message filtered: ${msg.messageId}`);
@@ -1213,8 +1236,8 @@ export async function handleMixinMessage(params: {
       log,
     });
   const conversationLabel = isDirect
-    ? clampSessionLabel(`${botName}-${senderName || msg.userId}`)
-    : clampSessionLabel(`${botName}-${groupName || msg.conversationId}`);
+    ? clampSessionLabel(`${botIdentity.name}-${senderName || msg.userId}`)
+    : clampSessionLabel(`${botIdentity.name}-${groupName || msg.conversationId}`);
 
   const ctx = rt.channel.reply.finalizeInboundContext({
     Body: text,
