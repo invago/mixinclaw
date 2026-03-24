@@ -1,4 +1,4 @@
-import type { OpenClawConfig } from "openclaw/plugin-sdk";
+﻿import type { OpenClawConfig } from "openclaw/plugin-sdk";
 import {
   MixinAccountConfigSchema,
   MixinConversationConfigSchema,
@@ -40,6 +40,14 @@ function getRawConfig(cfg: OpenClawConfig): RawMixinConfig {
   if (channelConfig) {
     return channelConfig as RawMixinConfig;
   }
+  const plugins = isRecord(root.plugins) ? root.plugins : undefined;
+  const entries = plugins && isRecord(plugins.entries) ? plugins.entries : undefined;
+  const mixinEntry = entries && isRecord(entries.mixin) ? entries.mixin : undefined;
+  const pluginEntryConfig = mixinEntry && isRecord(mixinEntry.config) ? mixinEntry.config : undefined;
+  if (pluginEntryConfig) {
+    return pluginEntryConfig as RawMixinConfig;
+  }
+
 
   const legacyNamedConfig = isRecord(root.mixin) ? root.mixin : undefined;
   if (legacyNamedConfig) {
@@ -194,3 +202,5 @@ export function describeAccount(account: ReturnType<typeof resolveAccount>) {
     enabled: account.enabled,
   };
 }
+
+

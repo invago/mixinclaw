@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+﻿import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { uniqueConversationID } from "@mixin.dev/mixin-node-sdk";
 import {
@@ -234,7 +234,23 @@ export const mixinPlugin = {
     aliases: ["mixin-messenger", "mixin"],
   },
 
-  configSchema: buildChannelConfigSchema(MixinConfigSchema),
+  configSchema: {
+    ...buildChannelConfigSchema(MixinConfigSchema),
+    uiHints: {
+      appId: { label: "Mixin App ID" },
+      sessionId: { label: "Session ID", sensitive: true },
+      serverPublicKey: { label: "Server Public Key", sensitive: true },
+      sessionPrivateKey: { label: "Session Private Key", sensitive: true },
+      "proxy.url": { label: "Proxy URL", advanced: true },
+      "proxy.username": { label: "Proxy Username", advanced: true },
+      "proxy.password": { label: "Proxy Password", sensitive: true, advanced: true },
+      "mixpay.payeeId": { label: "MixPay Payee ID", advanced: true },
+    },
+  },
+
+  reload: {
+    configPrefixes: ["channels.mixin"],
+  },
 
   capabilities: {
     chatTypes: ["direct", "group"] as Array<"direct" | "group">,
@@ -271,8 +287,8 @@ export const mixinPlugin = {
         approveHint: policy === "pairing"
           ? formatPairingApproveHint("mixin")
           : allowFrom.length > 0
-            ? `已配置白名单用户数 ${allowFrom.length}，将用户的 Mixin UUID 添加到 allowFrom 列表即可授权`
-            : "将用户的 Mixin UUID 添加到 allowFrom 列表即可授权",
+            ? `宸查厤缃櫧鍚嶅崟鐢ㄦ埛鏁?${allowFrom.length}锛屽皢鐢ㄦ埛鐨?Mixin UUID 娣诲姞鍒?allowFrom 鍒楄〃鍗冲彲鎺堟潈`
+            : "灏嗙敤鎴风殑 Mixin UUID 娣诲姞鍒?allowFrom 鍒楄〃鍗冲彲鎺堟潈",
       };
     },
   },
@@ -492,3 +508,4 @@ export const mixinPlugin = {
 };
 
 export { describeAccount, isConfigured };
+
