@@ -287,10 +287,12 @@ export const mixinPlugin = {
   },
 
   security: {
-    resolveDmPolicy: ({ account, accountId }: { account: ResolvedMixinAccount; accountId?: string | null }) => {
-      const allowFrom = account.config.allowFrom ?? [];
+    resolveDmPolicy: (
+      { account, accountId }: { account?: ResolvedMixinAccount; accountId?: string | null },
+    ) => {
+      const allowFrom = account?.config?.allowFrom ?? [];
       const basePath = accountId && accountId !== "default" ? `.accounts.${accountId}` : "";
-      const policy = account.config.dmPolicy ?? "pairing";
+      const policy = account?.config?.dmPolicy ?? "pairing";
 
       return {
         policy,
