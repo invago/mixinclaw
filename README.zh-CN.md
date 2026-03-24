@@ -692,3 +692,5 @@ Mixin 现在已经支持通过 MixPay one-time payment 做收款。
 - 频道配置仍然放在 `channels.mixin` 和 `channels.mixin.accounts.<accountId>` 下。
 - 宿主侧诊断命令为 `/mixin-status`、`/mixin-accounts`、`/mixin-help`。
 - 本地开发建议使用 `openclaw plugins install -l .`。
+
+- 使用 `/setup` 进入配置引导流程。

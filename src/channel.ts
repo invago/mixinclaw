@@ -15,6 +15,7 @@ import { describeAccount, isConfigured, listAccountIds, resolveAccount, resolveD
 import type { MixinAccountConfig } from "./config-schema.js";
 import { handleMixinMessage, type MixinInboundMessage } from "./inbound-handler.js";
 import { getMixpayStatusSnapshot, startMixpayWorker } from "./mixpay-worker.js";
+import { mixinOnboardingAdapter } from "./onboarding.js";
 import { buildMixinOutboundPlanFromReplyPayload, executeMixinOutboundPlan } from "./outbound-plan.js";
 import { getMixinRuntime, setMixinBlazeSender } from "./runtime.js";
 import { getOutboxStatus, sendAudioMessage, sendFileMessage, sendTextMessage, startSendWorker } from "./send-service.js";
@@ -261,12 +262,24 @@ export const mixinPlugin = {
     blockStreaming: false,
   },
 
-  config: {
-    listAccountIds,
-    resolveAccount: (cfg: OpenClawConfig, accountId?: string | null) =>
-      resolveAccount(cfg, accountId ?? undefined),
-    defaultAccountId: (cfg: OpenClawConfig) => resolveDefaultAccountId(cfg),
-  },
+    onboarding: mixinOnboardingAdapter,
+    config: {
+      listAccountIds,
+      resolveAccount: (cfg: OpenClawConfig, accountId?: string | null) =>
+        resolveAccount(cfg, accountId ?? undefined),
+      defaultAccountId: (cfg: OpenClawConfig) => resolveDefaultAccountId(cfg),
+      inspectAccount: (cfg: OpenClawConfig, accountId?: string | null) => {
+        const resolvedAccount = resolveAccount(cfg, accountId ?? undefined);
+        const statusSnapshot = resolveMixinStatusSnapshot(cfg, resolvedAccount.accountId);
+        return buildMixinAccountSnapshot({
+          account: resolvedAccount,
+          runtime: null,
+          probe: null,
+          defaultAccountId: statusSnapshot.defaultAccountId,
+          outboxPending: statusSnapshot.outboxPending,
+        });
+      },
+    },
 
   pairing: {
     idLabel: "Mixin UUID",
@@ -508,4 +521,8 @@ export const mixinPlugin = {
 };
 
 export { describeAccount, isConfigured };
+
+
+
+
 

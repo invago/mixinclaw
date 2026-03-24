@@ -77,6 +77,7 @@ export function formatMixinStatusText(cfg: OpenClawConfig, diagnostics: MixinPlu
 export function formatMixinHelpText(): string {
   return [
     "Mixin plugin commands",
+    "/setup - open the setup guide",
     "/mixin-status - show account and queue status",
     "/mixin-accounts - list configured accounts",
     "/mixin-help - show this help text",
@@ -91,4 +92,39 @@ export function buildMixinAccountsText(cfg: OpenClawConfig): string {
   const accountIds = listAccountIds(cfg);
   const lines = ["Configured accounts", ...accountIds.map((accountId) => `- ${formatAccountSummary(cfg, accountId)}`)];
   return lines.join("\n");
+}
+
+export function formatMixinSetupText(cfg: OpenClawConfig, diagnostics?: MixinPluginDiagnostics): string {
+  const resolved = diagnostics ?? {
+    defaultAccountId: resolveDefaultAccountId(cfg),
+    accountIds: listAccountIds(cfg),
+    accounts: listAccountIds(cfg).map((accountId) => describeAccount(resolveAccount(cfg, accountId))),
+    outboxPending: 0,
+    mixpayPendingOrders: 0,
+    outboxDir: "-",
+    outboxFile: "-",
+    mixpayStoreDir: null,
+    mixpayStoreFile: null,
+    mediaMaxMb: null,
+  };
+
+  return [
+    "Mixin setup",
+    "",
+    "1. Keep or create the default account under channels.mixin.",
+    "2. For multi-account setups, use channels.mixin.accounts.<accountId>.",
+    "3. Fill in appId, sessionId, serverPublicKey, and sessionPrivateKey.",
+    "4. Use /mixin-status after restart to confirm the account is ready.",
+    "5. Use /mixin-accounts to verify all configured accounts.",
+    "",
+    `Default account: ${resolved.defaultAccountId}`,
+    `Accounts: ${resolved.accountIds.length}`,
+    ...resolved.accountIds.map((accountId) => `- ${formatAccountSummary(cfg, accountId)}`),
+    "",
+    "Optional fields you can adjust later:",
+    "- dmPolicy / allowFrom",
+    "- groupPolicy / groupAllowFrom",
+    "- mixpay",
+    "- proxy",
+  ].join("\n");
 }

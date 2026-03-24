@@ -5,6 +5,7 @@ import {
   buildMixinAccountsText,
   buildMixinPluginDiagnostics,
   formatMixinHelpText,
+  formatMixinSetupText,
   formatMixinStatusText,
 } from "./src/plugin-admin.js";
 import { setMixinRuntime } from "./src/runtime.js";
@@ -20,6 +21,11 @@ process.on("uncaughtException", (error) => {
 async function buildStatusText(cfg: OpenClawConfig): Promise<string> {
   const diagnostics = await buildMixinPluginDiagnostics(cfg);
   return formatMixinStatusText(cfg, diagnostics);
+}
+
+async function buildSetupText(cfg: OpenClawConfig): Promise<string> {
+  const diagnostics = await buildMixinPluginDiagnostics(cfg);
+  return formatMixinSetupText(cfg, diagnostics);
 }
 
 const plugin = {
@@ -48,6 +54,19 @@ const plugin = {
       respond(true, {
         accounts: buildMixinAccountsText(cfg),
       });
+    });
+    api.registerGatewayMethod("mixin.setup", async ({ respond }) => {
+      const cfg = api.config as OpenClawConfig;
+      respond(true, {
+        setup: await buildSetupText(cfg),
+      });
+    });
+    api.registerCommand({
+      name: "setup",
+      description: "Show Mixin setup guide",
+      handler: async (ctx: { config: OpenClawConfig }) => ({
+        text: await buildSetupText(ctx.config),
+      }),
     });
     api.registerCommand({
       name: "mixin-status",
