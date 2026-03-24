@@ -13,10 +13,13 @@
     "openclaw": ">=2026.2.0"
   },
   "dependencies": {
+    "@sinclair/typebox": "^0.34.48",
     "@mixin.dev/mixin-node-sdk": "^7.4.1",
     "@noble/curves": "^2.0.1",
     "@noble/hashes": "^2.0.1",
     "axios": "^1.13.6",
+    "ajv": "^8.18.0",
+    "ajv-formats": "^3.0.1",
     "express": "^5.2.1",
     "jiti": "^1.21.0",
     "proxy-agent": "^6.5.0",
