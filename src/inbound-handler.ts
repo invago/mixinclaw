@@ -135,6 +135,10 @@ function decodeContent(category: string, data: string): string {
   return `[${category}]`;
 }
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 function buildUserProfileCacheKey(accountId: string, userId: string): string {
   return `${accountId}:${userId.trim().toLowerCase()}`;
 }
@@ -549,11 +553,29 @@ async function resolveInboundAttachment(params: {
   }
 }
 
-function shouldPassGroupFilter(config: MixinAccountConfig, text: string, replyContext?: { id: string } | null): boolean {
+function hasBotMention(text: string, botName?: string): boolean {
+  const normalizedBotName = normalizePresentationName(botName ?? "").replace(/^@+/, "");
+  if (!normalizedBotName) {
+    return false;
+  }
+
+  const mentionPattern = new RegExp(`@\\s*${escapeRegExp(normalizedBotName)}(?=$|[\\s:：,，.!?。；;、])`, "i");
+  return mentionPattern.test(text);
+}
+
+function shouldPassGroupFilter(
+  config: MixinAccountConfig,
+  text: string,
+  replyContext?: { id: string } | null,
+  botName?: string,
+): boolean {
   if (!config.requireMentionInGroup) {
     return true;
   }
   if (replyContext?.id) {
+    return true;
+  }
+  if (hasBotMention(text, botName)) {
     return true;
   }
   if (text.trim().startsWith("/")) {
@@ -905,6 +927,11 @@ export async function handleMixinMessage(params: {
     return;
   }
 
+  const botName = await resolveBotName({
+    accountId,
+    config,
+    log,
+  });
   const replyContext = resolveMixinReplyContext({
     accountId,
     conversationId: msg.conversationId,
@@ -934,14 +961,26 @@ export async function handleMixinMessage(params: {
     ? null
     : resolveConversationPolicy(cfg, accountId, msg.conversationId);
 
+  const groupMentioned = !isDirect && hasBotMention(text, botName);
+  if (!isDirect) {
+    log.info(
+      `[mixin] group trigger check: messageId=${msg.messageId}, botName=${botName}, replyContext=${replyContext?.id ?? "none"}, mentioned=${groupMentioned}`,
+    );
+  }
+
   if (
     !isDirect &&
     conversationPolicy &&
     !(isAttachmentMessage && conversationPolicy.mediaBypassMention) &&
-    !shouldPassGroupFilter({
-      ...config,
-      requireMentionInGroup: conversationPolicy.requireMention,
-    }, text, replyContext)
+    !shouldPassGroupFilter(
+      {
+        ...config,
+        requireMentionInGroup: conversationPolicy.requireMention,
+      },
+      text,
+      replyContext,
+      botName,
+    )
   ) {
     log.info(`[mixin] group message filtered: ${msg.messageId}`);
     return;
@@ -1163,11 +1202,6 @@ export async function handleMixinMessage(params: {
     accountId,
     config,
     userId: msg.userId,
-    log,
-  });
-  const botName = await resolveBotName({
-    accountId,
-    config,
     log,
   });
   const groupName = isDirect
