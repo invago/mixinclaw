@@ -42,6 +42,45 @@ function maskKey(key: string): string {
   return key.slice(0, 4) + "****" + key.slice(-4);
 }
 
+function extractQuoteMessageId(rawMsg: unknown): string | undefined {
+  const seen = new Set<unknown>();
+  const stack: unknown[] = [rawMsg];
+  const candidateKeys = [
+    "quote_message_id",
+    "quoteMessageId",
+    "quoted_message_id",
+    "quotedMessageId",
+    "reply_to_message_id",
+    "replyToMessageId",
+    "reference_message_id",
+    "referenceMessageId",
+  ];
+
+  while (stack.length > 0) {
+    const value = stack.pop();
+    if (!value || typeof value !== "object" || seen.has(value)) {
+      continue;
+    }
+    seen.add(value);
+
+    const record = value as Record<string, unknown>;
+    for (const key of candidateKeys) {
+      const candidate = record[key];
+      if (typeof candidate === "string" && candidate.trim()) {
+        return candidate.trim();
+      }
+    }
+
+    for (const nested of Object.values(record)) {
+      if (nested && typeof nested === "object") {
+        stack.push(nested);
+      }
+    }
+  }
+
+  return undefined;
+}
+
 async function resolveIsDirectMessage(params: {
   config: MixinAccountConfig;
   conversationId?: string;
@@ -436,7 +475,7 @@ export const mixinPlugin = {
                     category: rawMsg.category ?? "PLAIN_TEXT",
                     data: rawMsg.data_base64 ?? rawMsg.data ?? "",
                     createdAt: rawMsg.created_at ?? new Date().toISOString(),
-                    quoteMessageId: rawMsg.quote_message_id ?? rawMsg.quoteMessageId ?? undefined,
+                    quoteMessageId: extractQuoteMessageId(rawMsg),
                   };
 
                   try {
