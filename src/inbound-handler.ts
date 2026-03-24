@@ -928,7 +928,9 @@ export async function handleMixinMessage(params: {
   const isAttachmentMessage = msg.category === "PLAIN_DATA" || msg.category === "PLAIN_AUDIO";
 
   if (!isTextMessage && !isAttachmentMessage) {
-    log.info(`[mixin] skip non-text message: ${msg.category}`);
+    log.info(
+      `[mixin] skip non-text message: messageId=${msg.messageId}, category=${msg.category}, quoteMessageId=${msg.quoteMessageId ?? "none"}`,
+    );
     return;
   }
 
