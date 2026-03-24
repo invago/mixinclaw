@@ -685,3 +685,10 @@ Mixin 现在已经支持通过 MixPay one-time payment 做收款。
 - [OpenClaw Configuration Reference](https://docs.openclaw.ai/gateway/configuration-reference)
 - [Mixin Developers Dashboard](https://developers.mixin.one/dashboard)
 - [Mixin Bot API Documentation](https://developers.mixin.one/docs/bot-api)
+
+## OpenClaw 3.23 说明
+
+- 插件清单使用 `openclaw.plugin.json`。
+- 频道配置仍然放在 `channels.mixin` 和 `channels.mixin.accounts.<accountId>` 下。
+- 宿主侧诊断命令为 `/mixin-status`、`/mixin-accounts`、`/mixin-help`。
+- 本地开发建议使用 `openclaw plugins install -l .`。

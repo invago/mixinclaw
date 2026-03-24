@@ -682,3 +682,10 @@ Rules:
 - [OpenClaw Configuration Reference](https://docs.openclaw.ai/gateway/configuration-reference)
 - [Mixin Developers Dashboard](https://developers.mixin.one/dashboard)
 - [Mixin Bot API Documentation](https://developers.mixin.one/docs/bot-api)
+
+## OpenClaw 3.23 notes
+
+- The plugin manifest is `openclaw.plugin.json`.
+- Channel config stays under `channels.mixin` and `channels.mixin.accounts.<accountId>`.
+- Host-side diagnostics are available as `/mixin-status`, `/mixin-accounts`, and `/mixin-help`.
+- For local development, prefer `openclaw plugins install -l .`.
