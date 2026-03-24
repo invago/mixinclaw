@@ -549,8 +549,11 @@ async function resolveInboundAttachment(params: {
   }
 }
 
-function shouldPassGroupFilter(config: MixinAccountConfig, text: string): boolean {
+function shouldPassGroupFilter(config: MixinAccountConfig, text: string, replyContext?: { id: string } | null): boolean {
   if (!config.requireMentionInGroup) {
+    return true;
+  }
+  if (replyContext?.id) {
     return true;
   }
   if (text.trim().startsWith("/")) {
@@ -938,7 +941,7 @@ export async function handleMixinMessage(params: {
     !shouldPassGroupFilter({
       ...config,
       requireMentionInGroup: conversationPolicy.requireMention,
-    }, text)
+    }, text, replyContext)
   ) {
     log.info(`[mixin] group message filtered: ${msg.messageId}`);
     return;
