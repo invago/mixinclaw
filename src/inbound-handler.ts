@@ -984,7 +984,6 @@ export async function handleMixinMessage(params: {
   const botAliases = [
     botIdentity.identityNumber,
     botIdentity.userId,
-    botIdentity.name,
   ].filter((value): value is string => Boolean(value && value.trim()));
   const groupMentioned = !isDirect && botAliases.some((alias) => hasBotMention(text, alias));
   if (!isDirect) {
