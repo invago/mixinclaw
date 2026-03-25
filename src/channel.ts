@@ -56,6 +56,43 @@ function extractQuoteMessageId(rawMsg: unknown): string | undefined {
     "referenceMessageId",
   ];
 
+  const searchEncodedText = (value: string): string | undefined => {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return undefined;
+    }
+
+    const possibleValues = [trimmed];
+    try {
+      possibleValues.push(Buffer.from(trimmed, "base64").toString("utf-8"));
+    } catch {
+      // ignore decode failures
+    }
+
+    for (const possibleValue of possibleValues) {
+      if (!possibleValue || !possibleValue.trim()) {
+        continue;
+      }
+      try {
+        const parsed = JSON.parse(possibleValue);
+        const nested = extractQuoteMessageId(parsed);
+        if (nested) {
+          return nested;
+        }
+      } catch {
+        for (const key of candidateKeys) {
+          const pattern = new RegExp(`["'\\s,:{]${key}["'\\s,:}]+([A-Za-z0-9_-]{8,})`, "i");
+          const match = possibleValue.match(pattern);
+          if (match?.[1]?.trim()) {
+            return match[1].trim();
+          }
+        }
+      }
+    }
+
+    return undefined;
+  };
+
   while (stack.length > 0) {
     const value = stack.pop();
     if (!value || typeof value !== "object" || seen.has(value)) {
@@ -74,6 +111,11 @@ function extractQuoteMessageId(rawMsg: unknown): string | undefined {
     for (const nested of Object.values(record)) {
       if (nested && typeof nested === "object") {
         stack.push(nested);
+      } else if (typeof nested === "string") {
+        const extracted = searchEncodedText(nested);
+        if (extracted) {
+          return extracted;
+        }
       }
     }
   }
