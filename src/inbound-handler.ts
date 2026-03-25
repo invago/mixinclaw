@@ -508,6 +508,30 @@ function formatInboundAttachmentText(category: string, payload: MixinAttachmentR
   return details.length > 0 ? `[Mixin file] ${details.join(" | ")}` : "[Mixin file]";
 }
 
+function tryDecodeFallbackText(data: string): string | null {
+  if (!data) {
+    return null;
+  }
+
+  try {
+    const decoded = Buffer.from(data, "base64").toString("utf-8").replace(/^\uFEFF/, "").trim();
+    if (!decoded) {
+      return null;
+    }
+    const compact = decoded.replace(/\s+/g, "");
+    if (!compact) {
+      return null;
+    }
+    const printableCount = Array.from(compact).filter((char) => /[\p{L}\p{N}\p{P}\p{S}\u4e00-\u9fff]/u.test(char)).length;
+    if (printableCount / compact.length < 0.6) {
+      return null;
+    }
+    return decoded;
+  } catch {
+    return null;
+  }
+}
+
 function buildQuotedMessageContextNote(params: {
   quoteMessageId: string;
   found: boolean;
@@ -924,8 +948,20 @@ export async function handleMixinMessage(params: {
     }
   }
 
-  const isTextMessage = msg.category.startsWith("PLAIN_TEXT") || msg.category.startsWith("PLAIN_POST");
+  let isTextMessage = msg.category.startsWith("PLAIN_TEXT") || msg.category.startsWith("PLAIN_POST");
   const isAttachmentMessage = msg.category === "PLAIN_DATA" || msg.category === "PLAIN_AUDIO";
+
+  if (!isTextMessage && !isAttachmentMessage) {
+    const fallbackText = tryDecodeFallbackText(msg.data);
+    if (fallbackText) {
+      log.warn(
+        `[mixin] treating unexpected category as text: messageId=${msg.messageId}, category=${msg.category}, fallbackLength=${fallbackText.length}`,
+      );
+      msg.category = "PLAIN_TEXT";
+      msg.data = Buffer.from(fallbackText).toString("base64");
+      isTextMessage = true;
+    }
+  }
 
   if (!isTextMessage && !isAttachmentMessage) {
     log.info(
