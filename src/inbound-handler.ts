@@ -1013,6 +1013,21 @@ export async function handleMixinMessage(params: {
     );
   }
 
+  if (!text && replyContext?.id) {
+    const quotedFallback = replyContext.found && replyContext.body
+      ? replyContext.body.trim()
+      : buildQuotedMessageContextNote({
+        quoteMessageId: replyContext.id,
+        found: replyContext.found,
+      }).join("\n");
+    if (quotedFallback) {
+      text = quotedFallback;
+      log.info(
+        `[mixin] using quoted fallback text: messageId=${msg.messageId}, quoteMessageId=${replyContext.id}, length=${text.length}`,
+      );
+    }
+  }
+
   const conversationPolicy = isDirect
     ? null
     : resolveConversationPolicy(cfg, accountId, msg.conversationId);
