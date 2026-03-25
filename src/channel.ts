@@ -48,12 +48,20 @@ function extractQuoteMessageId(rawMsg: unknown): string | undefined {
   const candidateKeys = [
     "quote_message_id",
     "quoteMessageId",
+    "quote_id",
+    "quoteId",
     "quoted_message_id",
     "quotedMessageId",
+    "quoted_id",
+    "quotedId",
     "reply_to_message_id",
     "replyToMessageId",
+    "reply_id",
+    "replyId",
     "reference_message_id",
     "referenceMessageId",
+    "reference_id",
+    "referenceId",
   ];
 
   const searchEncodedText = (value: string): string | undefined => {
@@ -519,6 +527,15 @@ export const mixinPlugin = {
                     createdAt: rawMsg.created_at ?? new Date().toISOString(),
                     quoteMessageId: extractQuoteMessageId(rawMsg),
                   };
+
+                  if (!isDirect && !msg.quoteMessageId) {
+                    const quoteKeys = Object.keys(rawMsg as Record<string, unknown>).filter((key) =>
+                      key.toLowerCase().includes("quote") || key.toLowerCase().includes("reply") || key.toLowerCase().includes("reference"),
+                    );
+                    log.info(
+                      `[mixin] quote probe: messageId=${msg.messageId}, keys=${quoteKeys.length ? quoteKeys.join(",") : "none"}`,
+                    );
+                  }
 
                   try {
                     await handleMixinMessage({ cfg, accountId, msg, isDirect, log });
