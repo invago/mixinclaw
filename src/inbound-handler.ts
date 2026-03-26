@@ -30,6 +30,7 @@ export interface MixinInboundMessage {
 }
 
 const processedMessages = new Set<string>();
+const processingMessages = new Set<string>();
 const MAX_DEDUP_SIZE = 2000;
 const unauthNotifiedUsers = new Map<string, number>();
 const unauthNotifiedGroups = new Map<string, number>();
@@ -161,11 +162,16 @@ function evaluateMixinSenderGroupAccess(params: {
   };
 }
 
-function isProcessed(messageId: string): boolean {
-  return processedMessages.has(messageId);
+function markProcessing(messageId: string): boolean {
+  if (processedMessages.has(messageId) || processingMessages.has(messageId)) {
+    return false;
+  }
+  processingMessages.add(messageId);
+  return true;
 }
 
 function markProcessed(messageId: string): void {
+  processingMessages.delete(messageId);
   if (processedMessages.size >= MAX_DEDUP_SIZE) {
     const first = processedMessages.values().next().value;
     if (first) {
@@ -173,6 +179,10 @@ function markProcessed(messageId: string): void {
     }
   }
   processedMessages.add(messageId);
+}
+
+function clearProcessing(messageId: string): void {
+  processingMessages.delete(messageId);
 }
 
 function pruneUnauthNotifiedUsers(now: number): void {
@@ -990,66 +1000,67 @@ export async function handleMixinMessage(params: {
   const { cfg, accountId, msg, isDirect, log } = params;
   const rt = getMixinRuntime();
 
-  if (isProcessed(msg.messageId)) {
+  if (!markProcessing(msg.messageId)) {
     return;
   }
 
-  const config = getAccountConfig(cfg, accountId);
+  try {
+    const config = getAccountConfig(cfg, accountId);
 
-  if (msg.category === "ENCRYPTED_TEXT" || msg.category === "ENCRYPTED_POST") {
-    log.info(`[mixin] decrypting encrypted message ${msg.messageId}, category=${msg.category}`);
-    try {
-      const decrypted = decryptMixinMessage(
-        msg.data,
-        config.sessionPrivateKey!,
-        config.sessionId!,
-      );
-      if (!decrypted) {
-        log.error(`[mixin] decryption failed for ${msg.messageId}`);
+    if (msg.category === "ENCRYPTED_TEXT" || msg.category === "ENCRYPTED_POST") {
+      log.info(`[mixin] decrypting encrypted message ${msg.messageId}, category=${msg.category}`);
+      try {
+        const decrypted = decryptMixinMessage(
+          msg.data,
+          config.sessionPrivateKey!,
+          config.sessionId!,
+        );
+        if (!decrypted) {
+          log.error(`[mixin] decryption failed for ${msg.messageId}`);
+          markProcessed(msg.messageId);
+          return;
+        }
+        log.info(`[mixin] decryption successful: messageId=${msg.messageId}, length=${decrypted.length}`);
+        msg.data = Buffer.from(decrypted).toString("base64");
+        msg.category = "PLAIN_TEXT";
+      } catch (err) {
+        log.error(`[mixin] decryption exception for ${msg.messageId}`, err);
         markProcessed(msg.messageId);
         return;
       }
-      log.info(`[mixin] decryption successful: messageId=${msg.messageId}, length=${decrypted.length}`);
-      msg.data = Buffer.from(decrypted).toString("base64");
-      msg.category = "PLAIN_TEXT";
-    } catch (err) {
-      log.error(`[mixin] decryption exception for ${msg.messageId}`, err);
-      markProcessed(msg.messageId);
+    }
+
+    let isTextMessage = msg.category.startsWith("PLAIN_TEXT") || msg.category.startsWith("PLAIN_POST");
+    const isAttachmentMessage = msg.category === "PLAIN_DATA" || msg.category === "PLAIN_AUDIO";
+
+    if (!isTextMessage && !isAttachmentMessage) {
+      const fallbackText = tryDecodeFallbackText(msg.data);
+      if (fallbackText) {
+        log.warn(
+          `[mixin] treating unexpected category as text: messageId=${msg.messageId}, category=${msg.category}, fallbackLength=${fallbackText.length}`,
+        );
+        msg.category = "PLAIN_TEXT";
+        msg.data = Buffer.from(fallbackText).toString("base64");
+        isTextMessage = true;
+      }
+    }
+
+    if (!isTextMessage && !isAttachmentMessage) {
+      log.info(
+        `[mixin] skip non-text message: messageId=${msg.messageId}, category=${msg.category}, quoteMessageId=${msg.quoteMessageId ?? "none"}`,
+      );
       return;
     }
-  }
 
-  let isTextMessage = msg.category.startsWith("PLAIN_TEXT") || msg.category.startsWith("PLAIN_POST");
-  const isAttachmentMessage = msg.category === "PLAIN_DATA" || msg.category === "PLAIN_AUDIO";
-
-  if (!isTextMessage && !isAttachmentMessage) {
-    const fallbackText = tryDecodeFallbackText(msg.data);
-    if (fallbackText) {
-      log.warn(
-        `[mixin] treating unexpected category as text: messageId=${msg.messageId}, category=${msg.category}, fallbackLength=${fallbackText.length}`,
-      );
-      msg.category = "PLAIN_TEXT";
-      msg.data = Buffer.from(fallbackText).toString("base64");
-      isTextMessage = true;
+    const decodedBody = decodeContent(msg.category, msg.data);
+    let text = decodedBody.trim();
+    let mediaPayload: AgentMediaPayload | undefined;
+    if (isAttachmentMessage) {
+      const resolved = await resolveInboundAttachment({ rt, config, msg, log });
+      text = resolved.text.trim();
+      mediaPayload = resolved.mediaPayload;
     }
-  }
-
-  if (!isTextMessage && !isAttachmentMessage) {
-    log.info(
-      `[mixin] skip non-text message: messageId=${msg.messageId}, category=${msg.category}, quoteMessageId=${msg.quoteMessageId ?? "none"}`,
-    );
-    return;
-  }
-
-  const decodedBody = decodeContent(msg.category, msg.data);
-  let text = decodedBody.trim();
-  let mediaPayload: AgentMediaPayload | undefined;
-  if (isAttachmentMessage) {
-    const resolved = await resolveInboundAttachment({ rt, config, msg, log });
-    text = resolved.text.trim();
-    mediaPayload = resolved.mediaPayload;
-  }
-  log.info(`[mixin] decoded text: messageId=${msg.messageId}, category=${msg.category}, length=${text.length}`);
+    log.info(`[mixin] decoded text: messageId=${msg.messageId}, category=${msg.category}, length=${text.length}`);
 
   const botIdentity = await resolveBotIdentity({
     accountId,
@@ -1397,26 +1408,31 @@ export async function handleMixinMessage(params: {
 
   log.info(`[mixin] dispatching ${msg.messageId} from ${msg.userId}`);
 
-  await rt.channel.reply.dispatchReplyWithBufferedBlockDispatcher({
-    ctx,
-    cfg,
-    dispatcherOptions: {
-      deliver: async (payload) => {
-        const replyText = payload.text ?? "";
-        if (!replyText) {
-          return;
-        }
-        const recipientId = isDirect ? msg.userId : undefined;
-        await deliverMixinReply({
-          cfg,
-          accountId,
-          conversationId: msg.conversationId,
-          recipientId,
-          creatorId: msg.userId,
-          text: replyText,
-          log,
-        });
+    await rt.channel.reply.dispatchReplyWithBufferedBlockDispatcher({
+      ctx,
+      cfg,
+      dispatcherOptions: {
+        deliver: async (payload) => {
+          const replyText = payload.text ?? "";
+          if (!replyText) {
+            return;
+          }
+          const recipientId = isDirect ? msg.userId : undefined;
+          await deliverMixinReply({
+            cfg,
+            accountId,
+            conversationId: msg.conversationId,
+            recipientId,
+            creatorId: msg.userId,
+            text: replyText,
+            log,
+          });
+        },
       },
-    },
-  });
+    });
+  } finally {
+    if (!processedMessages.has(msg.messageId)) {
+      clearProcessing(msg.messageId);
+    }
+  }
 }
