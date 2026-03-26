@@ -546,87 +546,6 @@ function buildQuotedMessageContextNote(params: {
   ];
 }
 
-function extractQuoteMessageIdFromDecodedPayload(decoded: string): string | undefined {
-  const trimmed = decoded.trim();
-  if (!trimmed) {
-    return undefined;
-  }
-
-  const candidateKeys = [
-    "quote_message_id",
-    "quoteMessageId",
-    "quote_id",
-    "quoteId",
-    "quoted_message_id",
-    "quotedMessageId",
-    "quoted_id",
-    "quotedId",
-    "reply_to_message_id",
-    "replyToMessageId",
-    "reply_id",
-    "replyId",
-    "reference_message_id",
-    "referenceMessageId",
-    "reference_id",
-    "referenceId",
-  ];
-
-  const stack: unknown[] = [trimmed];
-  const seen = new Set<unknown>();
-
-  while (stack.length > 0) {
-    const current = stack.pop();
-    if (!current || seen.has(current)) {
-      continue;
-    }
-    seen.add(current);
-
-    if (typeof current === "string") {
-      try {
-        stack.push(JSON.parse(current));
-        continue;
-      } catch {
-        for (const key of candidateKeys) {
-          const pattern = new RegExp(`["'\\s,:{]${key}["'\\s,:}]+([A-Za-z0-9-]{8,})`, "i");
-          const match = current.match(pattern);
-          if (match?.[1]?.trim()) {
-            return match[1].trim();
-          }
-        }
-        continue;
-      }
-    }
-
-    if (typeof current !== "object") {
-      continue;
-    }
-
-    const record = current as Record<string, unknown>;
-    for (const key of candidateKeys) {
-      const candidate = record[key];
-      if (typeof candidate === "string" && candidate.trim()) {
-        return candidate.trim();
-      }
-    }
-
-    for (const value of Object.values(record)) {
-      if (value && (typeof value === "string" || typeof value === "object")) {
-        stack.push(value);
-      }
-    }
-  }
-
-  return undefined;
-}
-
-function summarizeDecodedBody(decoded: string): string {
-  const normalized = decoded.replace(/\s+/g, " ").trim();
-  if (!normalized) {
-    return "empty";
-  }
-  return sliceUtf16Safe(normalized, 80);
-}
-
 async function resolveInboundAttachment(params: {
   rt: ReturnType<typeof getMixinRuntime>;
   config: MixinAccountConfig;
@@ -689,13 +608,9 @@ function hasBotMention(text: string, botName?: string): boolean {
 function shouldPassGroupFilter(
   config: MixinAccountConfig,
   text: string,
-  replyMentionsBot: boolean,
   botAliases: string[] = [],
 ): boolean {
   if (!config.requireMentionInGroup) {
-    return true;
-  }
-  if (replyMentionsBot) {
     return true;
   }
   if (botAliases.some((alias) => hasBotMention(text, alias))) {
@@ -1052,15 +967,6 @@ export async function handleMixinMessage(params: {
   }
 
   const decodedBody = decodeContent(msg.category, msg.data);
-  if (!msg.quoteMessageId) {
-    msg.quoteMessageId = extractQuoteMessageIdFromDecodedPayload(decodedBody);
-  }
-  if (!isDirect && !msg.quoteMessageId) {
-    log.info(
-      `[mixin] decoded quote probe: messageId=${msg.messageId}, category=${msg.category}, body=${summarizeDecodedBody(decodedBody)}`,
-    );
-  }
-
   let text = decodedBody.trim();
   let mediaPayload: AgentMediaPayload | undefined;
   if (isAttachmentMessage) {
@@ -1100,7 +1006,7 @@ export async function handleMixinMessage(params: {
     );
   }
 
-  if (!text && !replyContext?.id) {
+  if (!text) {
     return;
   }
 
@@ -1112,16 +1018,10 @@ export async function handleMixinMessage(params: {
     botIdentity.identityNumber,
     botIdentity.userId,
   ].filter((value): value is string => Boolean(value && value.trim()));
-  const replyMentionsBot = Boolean(
-    replyContext?.id && (
-      replyContext.direction === "outbound" ||
-      normalizeAllowEntry(replyContext.senderId ?? "") === normalizeAllowEntry(botIdentity.userId)
-    ),
-  );
   const groupMentioned = !isDirect && botAliases.some((alias) => hasBotMention(text, alias));
   if (!isDirect) {
     log.info(
-      `[mixin] group trigger check: messageId=${msg.messageId}, botName=${botIdentity.name}, botUserId=${botIdentity.userId}, botIdentityNumber=${botIdentity.identityNumber || "none"}, replyContext=${replyContext?.id ?? "none"}, replyMentionsBot=${replyMentionsBot}, mentioned=${groupMentioned}`,
+      `[mixin] group trigger check: messageId=${msg.messageId}, botName=${botIdentity.name}, botUserId=${botIdentity.userId}, botIdentityNumber=${botIdentity.identityNumber || "none"}, replyContext=${replyContext?.id ?? "none"}, mentioned=${groupMentioned}`,
     );
   }
 
@@ -1135,7 +1035,6 @@ export async function handleMixinMessage(params: {
         requireMentionInGroup: conversationPolicy.requireMention,
       },
       text,
-      replyMentionsBot,
       botAliases,
     )
   ) {

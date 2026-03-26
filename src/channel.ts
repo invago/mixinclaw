@@ -45,61 +45,6 @@ function maskKey(key: string): string {
 function extractQuoteMessageId(rawMsg: unknown): string | undefined {
   const seen = new Set<unknown>();
   const stack: unknown[] = [rawMsg];
-  const candidateKeys = [
-    "quote_message_id",
-    "quoteMessageId",
-    "quote_id",
-    "quoteId",
-    "quoted_message_id",
-    "quotedMessageId",
-    "quoted_id",
-    "quotedId",
-    "reply_to_message_id",
-    "replyToMessageId",
-    "reply_id",
-    "replyId",
-    "reference_message_id",
-    "referenceMessageId",
-    "reference_id",
-    "referenceId",
-  ];
-
-  const searchEncodedText = (value: string): string | undefined => {
-    const trimmed = value.trim();
-    if (!trimmed) {
-      return undefined;
-    }
-
-    const possibleValues = [trimmed];
-    try {
-      possibleValues.push(Buffer.from(trimmed, "base64").toString("utf-8"));
-    } catch {
-      // ignore decode failures
-    }
-
-    for (const possibleValue of possibleValues) {
-      if (!possibleValue || !possibleValue.trim()) {
-        continue;
-      }
-      try {
-        const parsed = JSON.parse(possibleValue);
-        const nested = extractQuoteMessageId(parsed);
-        if (nested) {
-          return nested;
-        }
-      } catch {
-        for (const key of candidateKeys) {
-          const pattern = new RegExp(`["'\\s,:{]${key}["'\\s,:}]+([A-Za-z0-9_-]{8,})`, "i");
-          const match = possibleValue.match(pattern);
-          if (match?.[1]?.trim()) {
-            return match[1].trim();
-          }
-        }
-      }
-    }
-
-    return undefined;
-  };
 
   while (stack.length > 0) {
     const value = stack.pop();
@@ -109,21 +54,18 @@ function extractQuoteMessageId(rawMsg: unknown): string | undefined {
     seen.add(value);
 
     const record = value as Record<string, unknown>;
-    for (const key of candidateKeys) {
-      const candidate = record[key];
-      if (typeof candidate === "string" && candidate.trim()) {
-        return candidate.trim();
-      }
+    const quoteMessageId = record.quote_message_id;
+    if (typeof quoteMessageId === "string" && quoteMessageId.trim()) {
+      return quoteMessageId.trim();
+    }
+    const camelQuoteMessageId = record.quoteMessageId;
+    if (typeof camelQuoteMessageId === "string" && camelQuoteMessageId.trim()) {
+      return camelQuoteMessageId.trim();
     }
 
     for (const nested of Object.values(record)) {
       if (nested && typeof nested === "object") {
         stack.push(nested);
-      } else if (typeof nested === "string") {
-        const extracted = searchEncodedText(nested);
-        if (extracted) {
-          return extracted;
-        }
       }
     }
   }
@@ -527,16 +469,6 @@ export const mixinPlugin = {
                     createdAt: rawMsg.created_at ?? new Date().toISOString(),
                     quoteMessageId: extractQuoteMessageId(rawMsg),
                   };
-
-                  if (!isDirect && !msg.quoteMessageId) {
-                    const quoteKeys = Object.keys(rawMsg as Record<string, unknown>).filter((key) =>
-                      key.toLowerCase().includes("quote") || key.toLowerCase().includes("reply") || key.toLowerCase().includes("reference"),
-                    );
-                    const category = typeof rawMsg.category === "string" ? rawMsg.category : "unknown";
-                    log.info(
-                      `[mixin] quote probe: messageId=${msg.messageId}, category=${category}, keys=${quoteKeys.length ? quoteKeys.join(",") : "none"}`,
-                    );
-                  }
 
                   try {
                     await handleMixinMessage({ cfg, accountId, msg, isDirect, log });

@@ -326,9 +326,11 @@ Mixin now supports formal group access controls in addition to direct-message `d
 Important delivery boundary:
 
 - In practice, Mixin group bots reliably receive messages when the bot is explicitly mentioned.
+- The most reliable format is `@<identity_number> your message`, for example `@7000103034 hello`.
 - `requireMentionInGroup: false` only disables this plugin's own post-delivery filtering.
 - It does not guarantee that Mixin will deliver every non-mention group message to the bot.
 - If a non-mention group message produces no read receipt and no inbound log, the message most likely was not delivered to the plugin by Mixin in the first place.
+- Group quote/reply interactions are currently not treated as a reliable bot trigger, because Mixin may not deliver those events to the bot over Blaze consistently.
 
 Example:
 
@@ -384,7 +386,9 @@ Where to look in logs:
 ## Usage
 
 - Direct message: `/status` or `Hello`
-- Group message: `@Bot your question` with trigger words such as `?` or `help`
+- Group message: `@<identity_number> your question`
+- Recommended example: `@7000103034 help me summarize this`
+- Do not rely on quote-only or quote-plus-mention group replies as a stable trigger path.
 
 ## Operations
 
