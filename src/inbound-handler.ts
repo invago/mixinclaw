@@ -619,6 +619,14 @@ function extractQuoteMessageIdFromDecodedPayload(decoded: string): string | unde
   return undefined;
 }
 
+function summarizeDecodedBody(decoded: string): string {
+  const normalized = decoded.replace(/\s+/g, " ").trim();
+  if (!normalized) {
+    return "empty";
+  }
+  return sliceUtf16Safe(normalized, 80);
+}
+
 async function resolveInboundAttachment(params: {
   rt: ReturnType<typeof getMixinRuntime>;
   config: MixinAccountConfig;
@@ -1046,6 +1054,11 @@ export async function handleMixinMessage(params: {
   const decodedBody = decodeContent(msg.category, msg.data);
   if (!msg.quoteMessageId) {
     msg.quoteMessageId = extractQuoteMessageIdFromDecodedPayload(decodedBody);
+  }
+  if (!isDirect && !msg.quoteMessageId) {
+    log.info(
+      `[mixin] decoded quote probe: messageId=${msg.messageId}, category=${msg.category}, body=${summarizeDecodedBody(decodedBody)}`,
+    );
   }
 
   let text = decodedBody.trim();

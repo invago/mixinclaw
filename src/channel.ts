@@ -532,8 +532,9 @@ export const mixinPlugin = {
                     const quoteKeys = Object.keys(rawMsg as Record<string, unknown>).filter((key) =>
                       key.toLowerCase().includes("quote") || key.toLowerCase().includes("reply") || key.toLowerCase().includes("reference"),
                     );
+                    const category = typeof rawMsg.category === "string" ? rawMsg.category : "unknown";
                     log.info(
-                      `[mixin] quote probe: messageId=${msg.messageId}, keys=${quoteKeys.length ? quoteKeys.join(",") : "none"}`,
+                      `[mixin] quote probe: messageId=${msg.messageId}, category=${category}, keys=${quoteKeys.length ? quoteKeys.join(",") : "none"}`,
                     );
                   }
 
