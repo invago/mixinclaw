@@ -1,5 +1,17 @@
-import { DmPolicySchema, GroupPolicySchema } from "openclaw/plugin-sdk";
 import { z } from "zod";
+
+const DmPolicySchema = z.enum([
+  "pairing",
+  "allowlist",
+  "open",
+  "disabled",
+]);
+
+const GroupPolicySchema = z.enum([
+  "open",
+  "disabled",
+  "allowlist",
+]);
 
 export const MixinProxyConfigSchema = z.object({
   enabled: z.boolean().optional().default(false),
