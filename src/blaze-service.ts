@@ -40,6 +40,45 @@ async function dispatchMessage(handler: BlazeHandler, msg: any): Promise<void> {
   await handler.onMessage(msg);
 }
 
+function readBlazeField(message: Record<string, unknown>, ...keys: string[]): string {
+  for (const key of keys) {
+    const value = message[key];
+    if (typeof value === "string" && value.trim()) {
+      return value.trim();
+    }
+  }
+  return "";
+}
+
+function summarizeBlazeInbound(message: unknown): string | null {
+  if (!message || typeof message !== "object") {
+    return null;
+  }
+
+  const record = message as Record<string, unknown>;
+  const messageId = readBlazeField(record, "message_id", "messageId");
+  const conversationId = readBlazeField(record, "conversation_id", "conversationId");
+  const userId = readBlazeField(record, "user_id", "userId");
+  const quoteMessageId = readBlazeField(record, "quote_message_id", "quoteMessageId");
+  const category = readBlazeField(record, "category");
+  const source = readBlazeField(record, "source");
+  const representativeId = readBlazeField(record, "representative_id", "representativeId");
+
+  if (!messageId && !category && !source && !conversationId) {
+    return null;
+  }
+
+  return [
+    `messageId=${messageId || "none"}`,
+    `conversationId=${conversationId || "none"}`,
+    `userId=${userId || "none"}`,
+    `category=${category || "none"}`,
+    `source=${source || "none"}`,
+    `quoteMessageId=${quoteMessageId || "none"}`,
+    `representativeId=${representativeId || "none"}`,
+  ].join(", ");
+}
+
 export async function runBlazeLoop(params: {
   config: MixinAccountConfig;
   options?: BlazeOptions;
@@ -150,6 +189,11 @@ export async function runBlazeLoop(params: {
         const msg = decodeMessage(data as Uint8Array, options ?? { parse: false, syncAck: false });
         if (!msg) {
           return;
+        }
+
+        const inboundSummary = summarizeBlazeInbound(msg);
+        if (inboundSummary) {
+          log.info(`[mixin] blaze inbound: ${inboundSummary}`);
         }
 
         if (options?.syncAck && msg.message_id) {
