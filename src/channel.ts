@@ -3,7 +3,6 @@ import { promisify } from "node:util";
 import { uniqueConversationID } from "@mixin.dev/mixin-node-sdk";
 import {
   buildChannelConfigSchema,
-  createDefaultChannelRuntimeState,
   formatPairingApproveHint,
   resolveChannelMediaMaxBytes,
 } from "openclaw/plugin-sdk";
@@ -29,6 +28,22 @@ const MULTIPLIER = 1.5;
 const MEDIA_MAX_BYTES = 30 * 1024 * 1024;
 const execFileAsync = promisify(execFile);
 const CONVERSATION_CATEGORY_CACHE_TTL_MS = 5 * 60 * 1000;
+
+function createDefaultMixinRuntimeState(accountId: string): {
+  accountId: string;
+  running: boolean;
+  lastStartAt: number | null;
+  lastStopAt: number | null;
+  lastError: string | null;
+} {
+  return {
+    accountId,
+    running: false,
+    lastStartAt: null,
+    lastStopAt: null,
+    lastError: null,
+  };
+}
 
 const conversationCategoryCache = new Map<string, {
   category: "CONTACT" | "GROUP";
@@ -513,7 +528,7 @@ export const mixinPlugin = {
   },
 
   status: {
-    defaultRuntime: createDefaultChannelRuntimeState("default"),
+    defaultRuntime: createDefaultMixinRuntimeState("default"),
     buildChannelSummary: (params: {
       snapshot: {
         configured?: boolean | null;
