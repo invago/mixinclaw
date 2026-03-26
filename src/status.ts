@@ -1,4 +1,3 @@
-import { buildBaseAccountStatusSnapshot, buildBaseChannelStatusSummary } from "openclaw/plugin-sdk";
 import type { OpenClawConfig } from "openclaw/plugin-sdk";
 import { getAccountConfig, resolveDefaultAccountId } from "./config.js";
 import { getOutboxPathsSnapshot, type OutboxStatus } from "./send-service.js";
@@ -43,6 +42,71 @@ type MixinStatusAccount = {
     audioRequireFfprobe?: boolean;
   };
 };
+
+function buildBaseChannelStatusSummary(snapshot: MixinChannelStatusSnapshot): {
+  configured: boolean;
+  running: boolean;
+  lastStartAt: number | null;
+  lastStopAt: number | null;
+  lastError: string | null;
+} {
+  return {
+    configured: snapshot.configured ?? false,
+    running: snapshot.running ?? false,
+    lastStartAt: snapshot.lastStartAt ?? null,
+    lastStopAt: snapshot.lastStopAt ?? null,
+    lastError: snapshot.lastError ?? null,
+  };
+}
+
+function buildRuntimeAccountStatusSnapshot(params: {
+  runtime?: RuntimeLifecycleSnapshot | null;
+  probe?: unknown;
+}): {
+  running: boolean;
+  lastStartAt: number | null;
+  lastStopAt: number | null;
+  lastError: string | null;
+  probe?: unknown;
+} {
+  const { runtime, probe } = params;
+  return {
+    running: runtime?.running ?? false,
+    lastStartAt: runtime?.lastStartAt ?? null,
+    lastStopAt: runtime?.lastStopAt ?? null,
+    lastError: runtime?.lastError ?? null,
+    probe,
+  };
+}
+
+function buildBaseAccountStatusSnapshot(params: {
+  account: MixinStatusAccount;
+  runtime?: RuntimeLifecycleSnapshot | null;
+  probe?: unknown;
+}): {
+  accountId: string;
+  name?: string;
+  enabled?: boolean;
+  configured?: boolean;
+  running: boolean;
+  lastStartAt: number | null;
+  lastStopAt: number | null;
+  lastError: string | null;
+  probe?: unknown;
+  lastInboundAt: number | null;
+  lastOutboundAt: number | null;
+} {
+  const { account, runtime, probe } = params;
+  return {
+    accountId: account.accountId,
+    name: account.name,
+    enabled: account.enabled,
+    configured: account.configured,
+    ...buildRuntimeAccountStatusSnapshot({ runtime, probe }),
+    lastInboundAt: runtime?.lastInboundAt ?? null,
+    lastOutboundAt: runtime?.lastOutboundAt ?? null,
+  };
+}
 
 export function resolveMixinStatusSnapshot(
   cfg: OpenClawConfig,
