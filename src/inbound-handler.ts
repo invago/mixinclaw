@@ -3,7 +3,6 @@ import os from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
-import { buildAgentMediaPayload, evaluateSenderGroupAccess, resolveDefaultGroupPolicy } from "openclaw/plugin-sdk";
 import type { AgentMediaPayload, OpenClawConfig } from "openclaw/plugin-sdk";
 import { getAccountConfig, resolveConversationPolicy } from "./config.js";
 import type { MixinAccountConfig } from "./config-schema.js";
@@ -69,6 +68,13 @@ type CachedBotIdentity = {
   expiresAt: number;
 };
 
+type GroupAccessDecision = {
+  allowed: boolean;
+  groupPolicy: "open" | "allowlist" | "disabled";
+  providerMissingFallbackApplied: boolean;
+  reason: "allowed" | "disabled" | "empty_allowlist" | "sender_not_allowlisted";
+};
+
 type MixinAttachmentRequest = {
   attachmentId: string;
   mimeType?: string;
@@ -85,6 +91,75 @@ let cachedUpdateSessionStore:
   | ((storePath: string, mutator: (store: Record<string, Record<string, unknown>>) => void | Promise<void>) => Promise<unknown>)
   | null
   | undefined;
+
+function buildMixinAgentMediaPayload(mediaList: Array<{ path: string; contentType?: string }>): AgentMediaPayload {
+  const first = mediaList[0];
+  const mediaPaths = mediaList.map((media) => media.path);
+  const mediaTypes = mediaList.map((media) => media.contentType).filter((value): value is string => Boolean(value));
+  return {
+    MediaPath: first?.path,
+    MediaType: first?.contentType ?? undefined,
+    MediaUrl: first?.path,
+    MediaPaths: mediaPaths.length > 0 ? mediaPaths : undefined,
+    MediaUrls: mediaPaths.length > 0 ? mediaPaths : undefined,
+    MediaTypes: mediaTypes.length > 0 ? mediaTypes : undefined,
+  };
+}
+
+function resolveMixinDefaultGroupPolicy(cfg: OpenClawConfig): "open" | "allowlist" | "disabled" | undefined {
+  const groupPolicy = cfg.channels?.defaults?.groupPolicy;
+  return groupPolicy === "open" || groupPolicy === "allowlist" || groupPolicy === "disabled"
+    ? groupPolicy
+    : undefined;
+}
+
+function evaluateMixinSenderGroupAccess(params: {
+  providerConfigPresent: boolean;
+  configuredGroupPolicy?: "open" | "allowlist" | "disabled";
+  defaultGroupPolicy?: "open" | "allowlist" | "disabled";
+  groupAllowFrom: string[];
+  senderId: string;
+  isSenderAllowed: (senderId: string, allowFrom: string[]) => boolean;
+}): GroupAccessDecision {
+  const configuredPolicy = params.configuredGroupPolicy ?? params.defaultGroupPolicy;
+  const providerMissingFallbackApplied = !params.providerConfigPresent && !configuredPolicy;
+  const groupPolicy = configuredPolicy ?? (params.providerConfigPresent ? "open" : "allowlist");
+
+  if (groupPolicy === "disabled") {
+    return {
+      allowed: false,
+      groupPolicy,
+      providerMissingFallbackApplied,
+      reason: "disabled",
+    };
+  }
+
+  if (groupPolicy === "allowlist") {
+    if (params.groupAllowFrom.length === 0) {
+      return {
+        allowed: false,
+        groupPolicy,
+        providerMissingFallbackApplied,
+        reason: "empty_allowlist",
+      };
+    }
+    if (!params.isSenderAllowed(params.senderId, params.groupAllowFrom)) {
+      return {
+        allowed: false,
+        groupPolicy,
+        providerMissingFallbackApplied,
+        reason: "sender_not_allowlisted",
+      };
+    }
+  }
+
+  return {
+    allowed: true,
+    groupPolicy,
+    providerMissingFallbackApplied,
+    reason: "allowed",
+  };
+}
 
 function isProcessed(messageId: string): boolean {
   return processedMessages.has(messageId);
@@ -578,7 +653,7 @@ async function resolveInboundAttachment(params: {
 
     return {
       text: formatInboundAttachmentText(params.msg.category, payload),
-      mediaPayload: buildAgentMediaPayload([
+      mediaPayload: buildMixinAgentMediaPayload([
         {
           path: saved.path,
           contentType: saved.contentType ?? payload.mimeType ?? fetched.contentType,
@@ -888,10 +963,10 @@ function evaluateMixinGroupAccess(params: {
   }
 
   const normalizedGroupAllowFrom = normalizeAllowEntries(conversationPolicy.groupAllowFrom);
-  const decision = evaluateSenderGroupAccess({
+  const decision = evaluateMixinSenderGroupAccess({
     providerConfigPresent: true,
     configuredGroupPolicy: conversationPolicy.groupPolicy,
-    defaultGroupPolicy: resolveDefaultGroupPolicy(params.cfg),
+    defaultGroupPolicy: resolveMixinDefaultGroupPolicy(params.cfg),
     groupAllowFrom: normalizedGroupAllowFrom,
     senderId: normalizeAllowEntry(params.senderId),
     isSenderAllowed: (senderId, allowFrom) => allowFrom.includes(normalizeAllowEntry(senderId)),

@@ -2,7 +2,7 @@
   "id": "mixin",
   "name": "Mixin Messenger Channel",
   "description": "Mixin Messenger channel via Blaze WebSocket",
-  "version": "1.0.15",
+  "version": "1.0.16",
   "channels": [
     "mixin"
   ],

@@ -3,8 +3,6 @@ import { promisify } from "node:util";
 import { uniqueConversationID } from "@mixin.dev/mixin-node-sdk";
 import {
   buildChannelConfigSchema,
-  formatPairingApproveHint,
-  resolveChannelMediaMaxBytes,
 } from "openclaw/plugin-sdk";
 import type { ChannelGatewayContext, OpenClawConfig, ReplyPayload } from "openclaw/plugin-sdk";
 import { runBlazeLoop } from "./blaze-service.js";
@@ -26,6 +24,7 @@ const BASE_DELAY = 1000;
 const MAX_DELAY = 3000;
 const MULTIPLIER = 1.5;
 const MEDIA_MAX_BYTES = 30 * 1024 * 1024;
+const MB = 1024 * 1024;
 const execFileAsync = promisify(execFile);
 const CONVERSATION_CATEGORY_CACHE_TTL_MS = 5 * 60 * 1000;
 
@@ -43,6 +42,10 @@ function createDefaultMixinRuntimeState(accountId: string): {
     lastStopAt: null,
     lastError: null,
   };
+}
+
+function formatMixinPairingApproveHint(channelId: string): string {
+  return `Approve via: \`openclaw pairing list ${channelId}\` / \`openclaw pairing approve ${channelId} <code>\``;
 }
 
 const conversationCategoryCache = new Map<string, {
@@ -173,11 +176,14 @@ async function resolveAudioDurationSeconds(filePath: string): Promise<number | n
 }
 
 function resolveMixinMediaMaxBytes(cfg: OpenClawConfig, accountId?: string | null): number {
-  return resolveChannelMediaMaxBytes({
-    cfg,
-    resolveChannelLimitMb: ({ cfg, accountId }) => resolveMediaMaxMb(cfg, accountId),
-    accountId,
-  }) ?? MEDIA_MAX_BYTES;
+  const channelLimitMb = resolveMediaMaxMb(cfg, accountId ?? undefined);
+  if (channelLimitMb) {
+    return channelLimitMb * MB;
+  }
+  if (cfg.agents?.defaults?.mediaMaxMb) {
+    return cfg.agents.defaults.mediaMaxMb * MB;
+  }
+  return MEDIA_MAX_BYTES;
 }
 
 async function deliverOutboundMixinPayload(params: {
@@ -346,7 +352,7 @@ export const mixinPlugin = {
         policyPath: `channels.mixin${basePath}.dmPolicy`,
         allowFromPath: `channels.mixin${basePath}.allowFrom`,
         approveHint: policy === "pairing"
-          ? formatPairingApproveHint("mixin")
+          ? formatMixinPairingApproveHint("mixin")
           : allowFrom.length > 0
             ? `宸查厤缃櫧鍚嶅崟鐢ㄦ埛鏁?${allowFrom.length}锛屽皢鐢ㄦ埛鐨?Mixin UUID 娣诲姞鍒?allowFrom 鍒楄〃鍗冲彲鎺堟潈`
             : "灏嗙敤鎴风殑 Mixin UUID 娣诲姞鍒?allowFrom 鍒楄〃鍗冲彲鎺堟潈",

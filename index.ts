@@ -1,5 +1,4 @@
 ﻿import type { OpenClawPluginApi, OpenClawConfig } from "openclaw/plugin-sdk";
-import { emptyPluginConfigSchema } from "openclaw/plugin-sdk";
 import { mixinPlugin } from "./src/channel.js";
 import {
   buildMixinAccountsText,
@@ -33,7 +32,11 @@ const plugin = {
   id: "mixin",
   name: "Mixin Messenger Channel",
   description: "Mixin Messenger channel via Blaze WebSocket",
-  configSchema: emptyPluginConfigSchema(),
+  configSchema: {
+    type: "object",
+    additionalProperties: false,
+    properties: {},
+  },
   register(api: OpenClawPluginApi): void {
     setMixinRuntime(api.runtime);
     api.registerChannel({ plugin: mixinPlugin });
