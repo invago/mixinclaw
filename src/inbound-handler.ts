@@ -1105,9 +1105,17 @@ export async function handleMixinMessage(params: {
     botIdentity.userId,
   ].filter((value): value is string => Boolean(value && value.trim()));
   const groupMentioned = !isDirect && botAliases.some((alias) => hasBotMention(text, alias));
+  const shouldPassGroupTrigger = isDirect || !conversationPolicy || shouldPassGroupFilter(
+    {
+      ...config,
+      requireMentionInGroup: conversationPolicy?.requireMention ?? config.requireMentionInGroup,
+    },
+    text,
+    botAliases,
+  );
   if (!isDirect) {
     log.info(
-      `[mixin] group trigger check: messageId=${msg.messageId}, botName=${botIdentity.name}, botUserId=${botIdentity.userId}, botIdentityNumber=${botIdentity.identityNumber || "none"}, replyContext=${replyContext?.id ?? "none"}, mentioned=${groupMentioned}`,
+      `[mixin] group trigger check: messageId=${msg.messageId}, botName=${botIdentity.name}, botUserId=${botIdentity.userId}, botIdentityNumber=${botIdentity.identityNumber || "none"}, replyContext=${replyContext?.id ?? "none"}, mentioned=${groupMentioned}, requireMention=${conversationPolicy?.requireMention ?? config.requireMentionInGroup}, willPass=${shouldPassGroupTrigger}`,
     );
   }
 
@@ -1115,14 +1123,7 @@ export async function handleMixinMessage(params: {
     !isDirect &&
     conversationPolicy &&
     !(isAttachmentMessage && conversationPolicy.mediaBypassMention) &&
-    !shouldPassGroupFilter(
-      {
-        ...config,
-        requireMentionInGroup: conversationPolicy.requireMention,
-      },
-      text,
-      botAliases,
-    )
+    !shouldPassGroupTrigger
   ) {
     log.info(`[mixin] group message filtered: ${msg.messageId}`);
     return;

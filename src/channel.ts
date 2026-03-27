@@ -477,6 +477,16 @@ export const mixinPlugin = {
                     userId: rawMsg.user_id,
                     log,
                   });
+                  const quoteMessageId = extractQuoteMessageId(rawMsg);
+                  const rawCategory = typeof rawMsg.category === "string" ? rawMsg.category : "PLAIN_TEXT";
+                  const rawData = typeof rawMsg.data_base64 === "string"
+                    ? rawMsg.data_base64
+                    : typeof rawMsg.data === "string"
+                      ? rawMsg.data
+                      : "";
+                  log.info(
+                    `[mixin] blaze inbound: messageId=${rawMsg.message_id}, conversationId=${rawMsg.conversation_id ?? ""}, userId=${rawMsg.user_id}, category=${rawCategory}, isDirect=${isDirect}, quoteMessageId=${quoteMessageId ?? "none"}, dataLength=${rawData.length}`,
+                  );
                   log.info(
                     `[mixin] inbound route context: messageId=${rawMsg.message_id}, conversationId=${rawMsg.conversation_id ?? ""}, userId=${rawMsg.user_id}, isDirect=${isDirect}`,
                   );
@@ -485,10 +495,10 @@ export const mixinPlugin = {
                     conversationId: rawMsg.conversation_id ?? "",
                     userId: rawMsg.user_id,
                     messageId: rawMsg.message_id,
-                    category: rawMsg.category ?? "PLAIN_TEXT",
-                    data: rawMsg.data_base64 ?? rawMsg.data ?? "",
+                    category: rawCategory,
+                    data: rawData,
                     createdAt: rawMsg.created_at ?? new Date().toISOString(),
-                    quoteMessageId: extractQuoteMessageId(rawMsg),
+                    quoteMessageId,
                   };
 
                   try {
