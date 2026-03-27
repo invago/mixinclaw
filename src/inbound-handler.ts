@@ -10,6 +10,7 @@ import { decryptMixinMessage } from "./crypto.js";
 import { getMixpayOrderStatusText, getRecentMixpayOrdersText, refreshMixpayOrderStatus } from "./mixpay-worker.js";
 import { buildMixinOutboundPlanFromReplyText, executeMixinOutboundPlan } from "./outbound-plan.js";
 import { getMixinRuntime } from "./runtime.js";
+import { claimMixinInboundMessage, commitMixinInboundMessage, releaseMixinInboundMessage } from "./message-dedup.js";
 import {
   getOutboxStatus,
   purgePermanentInvalidOutboxEntries,
@@ -29,9 +30,6 @@ export interface MixinInboundMessage {
   publicKey?: string;
 }
 
-const processedMessages = new Set<string>();
-const processingMessages = new Set<string>();
-const MAX_DEDUP_SIZE = 2000;
 const unauthNotifiedUsers = new Map<string, number>();
 const unauthNotifiedGroups = new Map<string, number>();
 const loggedAllowFromAccounts = new Set<string>();
@@ -172,29 +170,6 @@ function evaluateMixinSenderGroupAccess(params: {
     providerMissingFallbackApplied,
     reason: "allowed",
   };
-}
-
-function markProcessing(messageId: string): boolean {
-  if (processedMessages.has(messageId) || processingMessages.has(messageId)) {
-    return false;
-  }
-  processingMessages.add(messageId);
-  return true;
-}
-
-function markProcessed(messageId: string): void {
-  processingMessages.delete(messageId);
-  if (processedMessages.size >= MAX_DEDUP_SIZE) {
-    const first = processedMessages.values().next().value;
-    if (first) {
-      processedMessages.delete(first);
-    }
-  }
-  processedMessages.add(messageId);
-}
-
-function clearProcessing(messageId: string): void {
-  processingMessages.delete(messageId);
 }
 
 function pruneUnauthNotifiedUsers(now: number): void {
@@ -1214,9 +1189,33 @@ export async function handleMixinMessage(params: {
   const { cfg, accountId, msg, isDirect, log } = params;
   const rt = getMixinRuntime();
 
-  if (!markProcessing(msg.messageId)) {
+  const claim = await claimMixinInboundMessage({
+    accountId,
+    conversationId: msg.conversationId,
+    messageId: msg.messageId,
+    createdAt: msg.createdAt,
+    log,
+  });
+  if (!claim.ok) {
+    if (claim.reason === "duplicate") {
+      log.info(`[mixin] duplicate inbound suppressed: accountId=${accountId}, messageId=${msg.messageId}`);
+    } else if (claim.reason === "stale") {
+      log.info(`[mixin] stale inbound dropped: accountId=${accountId}, messageId=${msg.messageId}, createdAt=${msg.createdAt}`);
+    } else {
+      log.warn(`[mixin] invalid inbound dedupe key: accountId=${accountId}, messageId=${msg.messageId}`);
+    }
     return;
   }
+  const dedupeKey = claim.dedupeKey;
+  let committed = false;
+
+  const commit = async (): Promise<void> => {
+    if (committed) {
+      return;
+    }
+    committed = true;
+    await commitMixinInboundMessage(dedupeKey, log);
+  };
 
   try {
     const config = getAccountConfig(cfg, accountId);
@@ -1231,7 +1230,7 @@ export async function handleMixinMessage(params: {
         );
         if (!decrypted) {
           log.error(`[mixin] decryption failed for ${msg.messageId}`);
-          markProcessed(msg.messageId);
+          await commit();
           return;
         }
         log.info(`[mixin] decryption successful: messageId=${msg.messageId}, length=${decrypted.length}`);
@@ -1239,7 +1238,7 @@ export async function handleMixinMessage(params: {
         msg.category = "PLAIN_TEXT";
       } catch (err) {
         log.error(`[mixin] decryption exception for ${msg.messageId}`, err);
-        markProcessed(msg.messageId);
+        await commit();
         return;
       }
     }
@@ -1263,6 +1262,7 @@ export async function handleMixinMessage(params: {
       log.info(
         `[mixin] skip non-text message: messageId=${msg.messageId}, category=${msg.category}, quoteMessageId=${msg.quoteMessageId ?? "none"}`,
       );
+      await commit();
       return;
     }
 
@@ -1307,6 +1307,7 @@ export async function handleMixinMessage(params: {
   }
 
   if (!text) {
+    await commit();
     return;
   }
 
@@ -1340,6 +1341,7 @@ export async function handleMixinMessage(params: {
     !shouldPassGroupTrigger
   ) {
     log.info(`[mixin] group message filtered: ${msg.messageId}`);
+    await commit();
     return;
   }
 
@@ -1370,7 +1372,7 @@ export async function handleMixinMessage(params: {
       const lastNotified = unauthNotifiedGroups.get(msg.conversationId) ?? 0;
       const shouldNotify = lastNotified === 0 || now - lastNotified > UNAUTH_NOTIFY_INTERVAL;
       if (!shouldNotify) {
-        markProcessed(msg.messageId);
+        await commit();
         return;
       }
       pruneUnauthNotifiedGroups(now);
@@ -1386,7 +1388,7 @@ export async function handleMixinMessage(params: {
           userId: msg.userId,
         }),
       });
-      markProcessed(msg.messageId);
+      await commit();
       await sendTextMessage(
         cfg,
         accountId,
@@ -1409,14 +1411,14 @@ export async function handleMixinMessage(params: {
         `[mixin] group sender ${msg.userId} blocked: conversationId=${msg.conversationId}, groupPolicy=${groupAccess?.groupPolicy ?? "unknown"}, reason=${groupAccess?.reason ?? "unknown"}`,
       );
     }
-    markProcessed(msg.messageId);
+    await commit();
     if (isDirect) {
       await handleUnauthorizedDirectMessage({ rt, cfg, accountId, config, msg, log });
     }
     return;
   }
 
-  markProcessed(msg.messageId);
+  await commit();
 
   if (isOutboxCommand(text)) {
     if (isOutboxPurgeInvalidCommand(text)) {
@@ -1657,8 +1659,8 @@ export async function handleMixinMessage(params: {
       },
     });
   } finally {
-    if (!processedMessages.has(msg.messageId)) {
-      clearProcessing(msg.messageId);
+    if (!committed) {
+      releaseMixinInboundMessage(dedupeKey);
     }
   }
 }
@@ -1670,9 +1672,35 @@ export async function handleMixinSystemConversation(params: {
   log: { info: (m: string) => void; warn: (m: string) => void; error: (m: string, e?: unknown) => void };
 }): Promise<void> {
   const { cfg, accountId, msg, log } = params;
-  if (!markProcessing(msg.messageId)) {
+  const claim = await claimMixinInboundMessage({
+    accountId,
+    conversationId: msg.conversationId,
+    messageId: msg.messageId,
+    createdAt: msg.createdAt,
+    log,
+  });
+  if (!claim.ok) {
+    if (claim.reason === "duplicate") {
+      log.info(`[mixin] duplicate system conversation suppressed: accountId=${accountId}, messageId=${msg.messageId}`);
+    } else if (claim.reason === "stale") {
+      log.info(
+        `[mixin] stale system conversation dropped: accountId=${accountId}, messageId=${msg.messageId}, createdAt=${msg.createdAt}`,
+      );
+    } else {
+      log.warn(`[mixin] invalid system conversation dedupe key: accountId=${accountId}, messageId=${msg.messageId}`);
+    }
     return;
   }
+  const dedupeKey = claim.dedupeKey;
+  let committed = false;
+
+  const commit = async (): Promise<void> => {
+    if (committed) {
+      return;
+    }
+    committed = true;
+    await commitMixinInboundMessage(dedupeKey, log);
+  };
 
   try {
     const config = getAccountConfig(cfg, accountId);
@@ -1686,7 +1714,7 @@ export async function handleMixinSystemConversation(params: {
       `[mixin] system conversation: messageId=${msg.messageId}, joinLike=${joinLike}, joinedUserIds=${joinedUserIds.join(",") || "none"}`,
     );
 
-    markProcessed(msg.messageId);
+    await commit();
 
     if (!joinLike) {
       return;
@@ -1703,8 +1731,8 @@ export async function handleMixinSystemConversation(params: {
     const welcomeText = formatMixinWelcomeMessage(joinedProfiles.map((profile) => profile.fullName));
     await sendTextMessage(cfg, accountId, msg.conversationId, undefined, welcomeText, log);
   } finally {
-    if (!processedMessages.has(msg.messageId)) {
-      clearProcessing(msg.messageId);
+    if (!committed) {
+      releaseMixinInboundMessage(dedupeKey);
     }
   }
 }
