@@ -1,4 +1,5 @@
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import crypto from "node:crypto";
+import { mkdir, open, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { getMixinRuntime } from "./runtime.js";
@@ -9,6 +10,7 @@ const DEFAULT_MAX_ENTRIES = 5000;
 const DEFAULT_SWEEP_INTERVAL_MS = 5 * 60 * 1000;
 const DEFAULT_STALE_MESSAGE_MS = 30 * 60 * 1000;
 const PERSIST_DEBOUNCE_MS = 1000;
+const CLAIM_STALE_MS = 10 * 60 * 1000;
 
 type MixinInboundDedupStoreEntry = {
   key: string;
@@ -29,6 +31,7 @@ type MixinInboundDedupState = {
   sweepTimer: NodeJS.Timeout | null;
   dirty: boolean;
   lastSweepAt: number;
+  lastLoadedAt: number;
 };
 
 type ClaimMixinInboundMessageParams = {
@@ -60,6 +63,7 @@ function createDefaultState(): MixinInboundDedupState {
     sweepTimer: null,
     dirty: false,
     lastSweepAt: 0,
+    lastLoadedAt: 0,
   };
 }
 
@@ -95,6 +99,7 @@ function resolveDedupPaths(): {
   dedupDir: string;
   dedupFile: string;
   dedupTmpFile: string;
+  claimsDir: string;
 } {
   const dedupDir = resolveDedupDir();
   const dedupFile = path.join(dedupDir, "mixin-inbound-dedup.json");
@@ -102,7 +107,17 @@ function resolveDedupPaths(): {
     dedupDir,
     dedupFile,
     dedupTmpFile: `${dedupFile}.tmp`,
+    claimsDir: path.join(dedupDir, "claims"),
   };
+}
+
+function hashDedupeKey(dedupeKey: string): string {
+  return crypto.createHash("sha1").update(dedupeKey).digest("hex");
+}
+
+function resolveClaimFilePath(dedupeKey: string): string {
+  const { claimsDir } = resolveDedupPaths();
+  return path.join(claimsDir, `${hashDedupeKey(dedupeKey)}.lock`);
 }
 
 function normalizeTimestamp(value: unknown): number | null {
@@ -228,13 +243,10 @@ async function persistState(log?: { warn: (message: string) => void }): Promise<
   await state.persistChain;
 }
 
-async function ensureLoaded(log?: { warn: (message: string) => void }): Promise<void> {
+async function loadStateFromDisk(log?: { warn: (message: string) => void }): Promise<void> {
   const state = getState();
-  if (state.loaded) {
-    return;
-  }
-
   const { dedupFile } = resolveDedupPaths();
+  state.seen.clear();
   try {
     const raw = await readFile(dedupFile, "utf-8");
     const parsed = JSON.parse(raw) as Partial<MixinInboundDedupStore>;
@@ -260,13 +272,94 @@ async function ensureLoaded(log?: { warn: (message: string) => void }): Promise<
   }
 
   state.loaded = true;
+  state.lastLoadedAt = Date.now();
   pruneSeenEntries(Date.now());
   ensureSweepTimer(log);
+}
+
+async function ensureLoaded(log?: { warn: (message: string) => void }): Promise<void> {
+  const state = getState();
+  if (state.loaded) {
+    return;
+  }
+  await loadStateFromDisk(log);
+}
+
+async function refreshStateFromDisk(log?: { warn: (message: string) => void }): Promise<void> {
+  const state = getState();
+  const { dedupFile } = resolveDedupPaths();
+  try {
+    const fileStat = await stat(dedupFile);
+    if (!state.loaded || fileStat.mtimeMs > state.lastLoadedAt) {
+      await loadStateFromDisk(log);
+    }
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException | undefined)?.code === "ENOENT") {
+      if (!state.loaded) {
+        state.loaded = true;
+        state.lastLoadedAt = Date.now();
+        ensureSweepTimer(log);
+      }
+      return;
+    }
+    log?.warn(
+      `[mixin] failed to refresh inbound dedup store: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
 }
 
 function shouldSweep(now: number): boolean {
   const state = getState();
   return now - state.lastSweepAt >= DEFAULT_SWEEP_INTERVAL_MS;
+}
+
+async function claimCrossProcessLock(
+  dedupeKey: string,
+  log?: { warn: (message: string) => void },
+): Promise<boolean> {
+  const { claimsDir } = resolveDedupPaths();
+  const claimFile = resolveClaimFilePath(dedupeKey);
+  await mkdir(claimsDir, { recursive: true });
+
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const handle = await open(claimFile, "wx");
+      try {
+        await handle.writeFile(JSON.stringify({ dedupeKey, claimedAt: Date.now(), pid: process.pid }), "utf-8");
+      } finally {
+        await handle.close();
+      }
+      return true;
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException | undefined)?.code;
+      if (code !== "EEXIST") {
+        log?.warn(
+          `[mixin] failed to create inbound dedup claim file: ${err instanceof Error ? err.message : String(err)}`,
+        );
+        return false;
+      }
+      try {
+        const claimStat = await stat(claimFile);
+        if (Date.now() - claimStat.mtimeMs < CLAIM_STALE_MS) {
+          return false;
+        }
+        await rm(claimFile, { force: true });
+      } catch {
+        return false;
+      }
+    }
+  }
+
+  return false;
+}
+
+async function releaseCrossProcessLock(dedupeKey: string): Promise<void> {
+  const claimFile = resolveClaimFilePath(dedupeKey);
+  try {
+    await rm(claimFile, { force: true });
+  } catch (err) {
+    void err;
+  }
 }
 
 export async function claimMixinInboundMessage(params: ClaimMixinInboundMessageParams): Promise<ClaimMixinInboundMessageResult> {
@@ -280,6 +373,7 @@ export async function claimMixinInboundMessage(params: ClaimMixinInboundMessageP
   }
 
   await ensureLoaded(params.log);
+  await refreshStateFromDisk(params.log);
   const now = Date.now();
   if (shouldSweep(now)) {
     pruneSeenEntries(now);
@@ -312,6 +406,15 @@ export async function claimMixinInboundMessage(params: ClaimMixinInboundMessageP
     };
   }
 
+  const claimed = await claimCrossProcessLock(dedupeKey, params.log);
+  if (!claimed) {
+    return {
+      ok: false,
+      dedupeKey,
+      reason: "duplicate",
+    };
+  }
+
   state.pending.add(dedupeKey);
   return {
     ok: true,
@@ -332,15 +435,17 @@ export async function commitMixinInboundMessage(dedupeKey: string, log?: { warn:
   state.seen.set(normalizedKey, Date.now());
   pruneSeenEntries(Date.now());
   schedulePersist(log);
+  await persistState(log);
 }
 
-export function releaseMixinInboundMessage(dedupeKey: string): void {
+export async function releaseMixinInboundMessage(dedupeKey: string): Promise<void> {
   const normalizedKey = dedupeKey.trim();
   if (!normalizedKey) {
     return;
   }
   const state = getState();
   state.pending.delete(normalizedKey);
+  await releaseCrossProcessLock(normalizedKey);
 }
 
 export function buildMixinInboundDedupeKey(params: {

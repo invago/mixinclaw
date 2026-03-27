@@ -1669,9 +1669,7 @@ export async function handleMixinMessage(params: {
       },
     });
   } finally {
-    if (!committed) {
-      releaseMixinInboundMessage(dedupeKey);
-    }
+    await releaseMixinInboundMessage(dedupeKey);
   }
 }
 
@@ -1741,8 +1739,6 @@ export async function handleMixinSystemConversation(params: {
     const welcomeText = formatMixinWelcomeMessage(joinedProfiles.map((profile) => profile.fullName));
     await sendTextMessage(cfg, accountId, msg.conversationId, undefined, welcomeText, log);
   } finally {
-    if (!committed) {
-      releaseMixinInboundMessage(dedupeKey);
-    }
+    await releaseMixinInboundMessage(dedupeKey);
   }
 }
