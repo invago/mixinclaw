@@ -1,6 +1,6 @@
 {
   "name": "@invago/mixin",
-  "version": "1.0.17",
+  "version": "1.0.18",
   "description": "Mixin Messenger channel plugin for OpenClaw",
   "type": "module",
   "main": "index.ts",

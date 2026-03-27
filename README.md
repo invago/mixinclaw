@@ -15,6 +15,7 @@ Important:
 - Install the plugin on the same machine where the OpenClaw Gateway runs.
 - OpenClaw config files use JSON5, so comments and trailing commas are allowed.
 - The proxy configured by this plugin only affects this plugin.
+- Per confirmed Mixin platform behavior, user messages in group chats are delivered to the bot only when the bot is explicitly mentioned.
 
 ## Recommended Install
 
@@ -325,11 +326,11 @@ Mixin now supports formal group access controls in addition to direct-message `d
 
 Important delivery boundary:
 
-- In practice, Mixin group bots reliably receive messages when the bot is explicitly mentioned.
-- The most reliable format is `@<identity_number> your message`, for example `@7000103034 hello`.
+- Per confirmed Mixin platform behavior, group messages from users are delivered to the bot only when the bot is explicitly mentioned.
+- Use `@<identity_number> your message`, for example `@7000103034 hello`.
 - `requireMentionInGroup: false` only disables this plugin's own post-delivery filtering.
-- It does not guarantee that Mixin will deliver every non-mention group message to the bot.
-- If a non-mention group message produces no read receipt and no inbound log, the message most likely was not delivered to the plugin by Mixin in the first place.
+- It does not cause Mixin to forward non-mention user messages in groups to the bot.
+- If a non-mention user message produces no read receipt and no inbound log, the message was not delivered to the plugin by Mixin in the first place.
 - Group quote/reply interactions are currently not treated as a reliable bot trigger, because Mixin may not deliver those events to the bot over Blaze consistently.
 
 Example:
