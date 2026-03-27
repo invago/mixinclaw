@@ -49,6 +49,9 @@ const requireFromHere = createRequire(import.meta.url);
 
 type CachedUserProfile = {
   fullName: string;
+  identityNumber: string;
+  relationship: string;
+  senderKind: MixinSenderKind;
   expiresAt: number;
 };
 
@@ -67,6 +70,15 @@ type CachedBotIdentity = {
   userId: string;
   identityNumber: string;
   expiresAt: number;
+};
+
+type MixinSenderKind = "user" | "bot" | "system" | "self" | "unknown";
+
+type ResolvedMixinSenderProfile = {
+  fullName: string;
+  identityNumber: string;
+  relationship: string;
+  senderKind: MixinSenderKind;
 };
 
 type GroupAccessDecision = {
@@ -244,6 +256,40 @@ function buildBotProfileCacheKey(accountId: string): string {
   return accountId.trim().toLowerCase();
 }
 
+function isSystemConversationCategory(category: string): boolean {
+  return category === "SYSTEM_CONVERSATION";
+}
+
+function isSystemSenderId(userId: string): boolean {
+  return userId.trim() === "00000000-0000-0000-0000-000000000000";
+}
+
+function isMixinBotIdentityNumber(identityNumber: string): boolean {
+  return /^700\d{7}$/.test(identityNumber.trim());
+}
+
+function classifyMixinSenderKind(params: {
+  userId: string;
+  identityNumber?: string;
+  category?: string;
+  selfUserId?: string;
+}): MixinSenderKind {
+  if (params.selfUserId && params.userId.trim() === params.selfUserId.trim()) {
+    return "self";
+  }
+  if (isSystemSenderId(params.userId) || isSystemConversationCategory(params.category ?? "")) {
+    return "system";
+  }
+  const normalizedIdentityNumber = normalizePresentationName(params.identityNumber ?? "");
+  if (normalizedIdentityNumber && isMixinBotIdentityNumber(normalizedIdentityNumber)) {
+    return "bot";
+  }
+  if (normalizedIdentityNumber) {
+    return "user";
+  }
+  return "unknown";
+}
+
 function pruneUserProfileCache(now: number): void {
   for (const [key, cached] of cachedUserProfiles) {
     if (cached.expiresAt <= now) {
@@ -371,22 +417,42 @@ async function loadUpdateSessionStore(log: {
   }
 }
 
-async function resolveSenderName(params: {
+async function resolveSenderProfile(params: {
   accountId: string;
   config: MixinAccountConfig;
   userId: string;
+  category?: string;
   log: { info: (m: string) => void; warn: (m: string) => void; error: (m: string, e?: unknown) => void };
-}): Promise<string> {
+}): Promise<ResolvedMixinSenderProfile> {
   const userId = params.userId.trim();
   if (!userId) {
-    return "";
+    return {
+      fullName: "",
+      identityNumber: "",
+      relationship: "",
+      senderKind: "unknown",
+    };
+  }
+
+  if (isSystemSenderId(userId) || isSystemConversationCategory(params.category ?? "")) {
+    return {
+      fullName: "system",
+      identityNumber: "",
+      relationship: "",
+      senderKind: "system",
+    };
   }
 
   const now = Date.now();
   const cacheKey = buildUserProfileCacheKey(params.accountId, userId);
   const cached = cachedUserProfiles.get(cacheKey);
   if (cached && cached.expiresAt > now) {
-    return cached.fullName;
+    return {
+      fullName: cached.fullName,
+      identityNumber: cached.identityNumber,
+      relationship: cached.relationship,
+      senderKind: cached.senderKind,
+    };
   }
 
   pruneUserProfileCache(now);
@@ -395,16 +461,41 @@ async function resolveSenderName(params: {
     const client = buildClient(params.config);
     const user = await client.user.fetch(userId);
     const fullName = typeof user.full_name === "string" && user.full_name.trim() ? user.full_name.trim() : userId;
+    const identityNumber = typeof user.identity_number === "string" ? user.identity_number.trim() : "";
+    const relationship = typeof user.relationship === "string" ? user.relationship.trim() : "";
+    const senderKind = classifyMixinSenderKind({
+      userId,
+      identityNumber,
+      category: params.category,
+      selfUserId: params.config.appId,
+    });
     cachedUserProfiles.set(cacheKey, {
       fullName,
+      identityNumber,
+      relationship,
+      senderKind,
       expiresAt: now + USER_PROFILE_CACHE_TTL_MS,
     });
-    return fullName;
+    return {
+      fullName,
+      identityNumber,
+      relationship,
+      senderKind,
+    };
   } catch (err) {
     params.log.warn(
       `[mixin] failed to resolve sender profile: accountId=${params.accountId}, userId=${userId}, error=${err instanceof Error ? err.message : String(err)}`,
     );
-    return userId;
+    return {
+      fullName: userId,
+      identityNumber: "",
+      relationship: "",
+      senderKind: classifyMixinSenderKind({
+        userId,
+        category: params.category,
+        selfUserId: params.config.appId,
+      }),
+    };
   }
 }
 
@@ -629,6 +720,129 @@ function buildQuotedMessageContextNote(params: {
     `Quoted message id: ${params.quoteMessageId}`,
     "Quoted message body was not available in cache.",
   ];
+}
+
+function buildSenderContextNote(params: {
+  senderKind: MixinSenderKind;
+  senderIdentityNumber?: string;
+  senderRelationship?: string;
+}): string[] {
+  const lines = [`Sender kind: ${params.senderKind}`];
+  if (params.senderIdentityNumber) {
+    lines.push(`Sender identity number: ${params.senderIdentityNumber}`);
+  }
+  if (params.senderRelationship) {
+    lines.push(`Sender relationship: ${params.senderRelationship}`);
+  }
+  return lines;
+}
+
+function combineUntrustedContext(...parts: Array<string[] | undefined>): string[] | undefined {
+  const combined = parts.flatMap((part) => part ?? []);
+  return combined.length > 0 ? combined : undefined;
+}
+
+function decodeSystemConversationText(data: string): string {
+  try {
+    return Buffer.from(data, "base64").toString("utf-8").replace(/^\uFEFF/, "").trim();
+  } catch {
+    return data.trim();
+  }
+}
+
+function tryParseSystemConversationPayload(text: string): unknown {
+  if (!text) {
+    return null;
+  }
+  try {
+    return JSON.parse(text);
+  } catch {
+    const start = text.indexOf("{");
+    const end = text.lastIndexOf("}");
+    if (start >= 0 && end > start) {
+      try {
+        return JSON.parse(text.slice(start, end + 1));
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  }
+}
+
+function collectSystemConversationStrings(value: unknown, depth = 0, output: string[] = []): string[] {
+  if (depth > 6 || value == null) {
+    return output;
+  }
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (trimmed) {
+      output.push(trimmed);
+    }
+    return output;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      collectSystemConversationStrings(item, depth + 1, output);
+    }
+    return output;
+  }
+  if (typeof value === "object") {
+    for (const nested of Object.values(value as Record<string, unknown>)) {
+      collectSystemConversationStrings(nested, depth + 1, output);
+    }
+  }
+  return output;
+}
+
+function extractSystemConversationUserIds(value: unknown, depth = 0, output: string[] = []): string[] {
+  if (depth > 6 || value == null) {
+    return output;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      extractSystemConversationUserIds(item, depth + 1, output);
+    }
+    return output;
+  }
+  if (typeof value !== "object") {
+    return output;
+  }
+
+  const record = value as Record<string, unknown>;
+  for (const [key, nested] of Object.entries(record)) {
+    if (typeof nested === "string") {
+      const normalizedKey = key.toLowerCase();
+      const trimmed = nested.trim();
+      if (
+        trimmed &&
+        /^[0-9a-f-]{36}$/i.test(trimmed) &&
+        (normalizedKey.includes("user") || normalizedKey.includes("participant") || normalizedKey.includes("member"))
+      ) {
+        output.push(trimmed.toLowerCase());
+      }
+    }
+    extractSystemConversationUserIds(nested, depth + 1, output);
+  }
+  return output;
+}
+
+function isJoinLikeSystemConversation(text: string, payload: unknown): boolean {
+  const haystack = [text, ...collectSystemConversationStrings(payload)]
+    .join(" ")
+    .toLowerCase();
+  return /( join|joined|invite|invited|add|added|加入|进群|入群 )/.test(` ${haystack} `);
+}
+
+function formatMixinWelcomeMessage(names: string[]): string {
+  const uniqueNames = Array.from(new Set(names.map((name) => normalizePresentationName(name)).filter(Boolean)));
+  if (uniqueNames.length === 0) {
+    return "欢迎新朋友加入群聊。";
+  }
+  if (uniqueNames.length === 1) {
+    return `欢迎 ${uniqueNames[0]} 加入群聊。`;
+  }
+  return `欢迎 ${uniqueNames.join("、")} 加入群聊。`;
 }
 
 async function resolveInboundAttachment(params: {
@@ -1341,12 +1555,14 @@ export async function handleMixinMessage(params: {
       })
     : undefined;
 
-  const senderName = await resolveSenderName({
+  const senderProfile = await resolveSenderProfile({
     accountId,
     config,
     userId: msg.userId,
+    category: msg.category,
     log,
   });
+  const senderName = senderProfile.fullName;
   const groupName = isDirect
     ? ""
     : await resolveGroupName({
@@ -1378,10 +1594,19 @@ export async function handleMixinMessage(params: {
     ReplyToBody: replyContext?.body,
     ReplyToSender: replyContext?.sender,
     ReplyToIsQuote: replyContext ? true : undefined,
-    UntrustedContext: replyContext?.id ? buildQuotedMessageContextNote({
-      quoteMessageId: replyContext.id,
-      found: replyContext.found,
-    }) : undefined,
+    SenderKind: senderProfile.senderKind,
+    SenderIdentityNumber: senderProfile.identityNumber || undefined,
+    UntrustedContext: combineUntrustedContext(
+      buildSenderContextNote({
+        senderKind: senderProfile.senderKind,
+        senderIdentityNumber: senderProfile.identityNumber,
+        senderRelationship: senderProfile.relationship,
+      }),
+      replyContext?.id ? buildQuotedMessageContextNote({
+        quoteMessageId: replyContext.id,
+        found: replyContext.found,
+      }) : undefined,
+    ),
     CommandAuthorized: commandAuthorized,
     OriginatingChannel: "mixin",
     OriginatingTo: isDirect ? msg.userId : msg.conversationId,
@@ -1431,6 +1656,52 @@ export async function handleMixinMessage(params: {
         },
       },
     });
+  } finally {
+    if (!processedMessages.has(msg.messageId)) {
+      clearProcessing(msg.messageId);
+    }
+  }
+}
+
+export async function handleMixinSystemConversation(params: {
+  cfg: OpenClawConfig;
+  accountId: string;
+  msg: MixinInboundMessage;
+  log: { info: (m: string) => void; warn: (m: string) => void; error: (m: string, e?: unknown) => void };
+}): Promise<void> {
+  const { cfg, accountId, msg, log } = params;
+  if (!markProcessing(msg.messageId)) {
+    return;
+  }
+
+  try {
+    const config = getAccountConfig(cfg, accountId);
+    const text = decodeSystemConversationText(msg.data);
+    const payload = tryParseSystemConversationPayload(text);
+    const joinedUserIds = Array.from(new Set(extractSystemConversationUserIds(payload)))
+      .filter((userId) => userId && !isSystemSenderId(userId) && userId !== config.appId?.trim().toLowerCase());
+    const joinLike = isJoinLikeSystemConversation(text, payload);
+
+    log.info(
+      `[mixin] system conversation: messageId=${msg.messageId}, joinLike=${joinLike}, joinedUserIds=${joinedUserIds.join(",") || "none"}`,
+    );
+
+    markProcessed(msg.messageId);
+
+    if (!joinLike) {
+      return;
+    }
+
+    const joinedProfiles = await Promise.all(
+      joinedUserIds.map((userId) => resolveSenderProfile({
+        accountId,
+        config,
+        userId,
+        log,
+      })),
+    );
+    const welcomeText = formatMixinWelcomeMessage(joinedProfiles.map((profile) => profile.fullName));
+    await sendTextMessage(cfg, accountId, msg.conversationId, undefined, welcomeText, log);
   } finally {
     if (!processedMessages.has(msg.messageId)) {
       clearProcessing(msg.messageId);
