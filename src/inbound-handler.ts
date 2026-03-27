@@ -235,6 +235,10 @@ function isSystemConversationCategory(category: string): boolean {
   return category === "SYSTEM_CONVERSATION";
 }
 
+function isRecallMessageCategory(category: string): boolean {
+  return category.trim().toUpperCase() === "MESSAGE_RECALL";
+}
+
 function isSystemSenderId(userId: string): boolean {
   return userId.trim() === "00000000-0000-0000-0000-000000000000";
 }
@@ -1241,6 +1245,12 @@ export async function handleMixinMessage(params: {
         await commit();
         return;
       }
+    }
+
+    if (isRecallMessageCategory(msg.category)) {
+      log.info(`[mixin] skip recall message: messageId=${msg.messageId}, category=${msg.category}`);
+      await commit();
+      return;
     }
 
     let isTextMessage = msg.category.startsWith("PLAIN_TEXT") || msg.category.startsWith("PLAIN_POST");
